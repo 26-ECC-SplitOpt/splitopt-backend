@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest   # Docker 내장 → Testcontainers(Flyway MySQL 검증) 실행됨
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false   # 테스트만 실행 → 체크아웃 토큰을 git 설정에 남기지 않음
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4

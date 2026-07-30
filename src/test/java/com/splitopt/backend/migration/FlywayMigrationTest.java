@@ -12,6 +12,7 @@ import org.testcontainers.utility.DockerImageName;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,9 +52,26 @@ class FlywayMigrationTest {
         };
         try (Connection conn = DriverManager.getConnection(
                 MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
+            String schema = conn.getCatalog();
             for (String table : expectedTables) {
-                try (ResultSet rs = conn.getMetaData().getTables(conn.getCatalog(), null, table, null)) {
+                try (ResultSet rs = conn.getMetaData().getTables(schema, null, table, null)) {
                     assertTrue(rs.next(), table + " 테이블이 생성되어야 한다");
+                }
+            }
+
+            // 스키마 계약: FK·CHECK 제약이 실제로 생성됐는지 검증
+            try (Statement st = conn.createStatement()) {
+                try (ResultSet fk = st.executeQuery(
+                        "SELECT COUNT(*) FROM information_schema.referential_constraints" +
+                                " WHERE constraint_schema = '" + schema + "'")) {
+                    fk.next();
+                    assertEquals(13, fk.getInt(1), "외래키(FK) 13개가 생성되어야 한다");
+                }
+                try (ResultSet ck = st.executeQuery(
+                        "SELECT COUNT(*) FROM information_schema.table_constraints" +
+                                " WHERE table_schema = '" + schema + "' AND constraint_type = 'CHECK'")) {
+                    ck.next();
+                    assertEquals(8, ck.getInt(1), "CHECK 제약 8개가 생성되어야 한다");
                 }
             }
         }
