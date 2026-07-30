@@ -87,10 +87,10 @@ public class SettlementService {
                 .toList();
     }
 
-    /** 정산 완료 처리 (API 27). */
+    /** 정산 완료 처리 (API 27). 경로의 모임에 속한 정산만 완료할 수 있다. */
     @Transactional
-    public SettlementResponse complete(Long settlementId) {
-        Settlement settlement = settlementRepository.findById(settlementId)
+    public SettlementResponse complete(Long groupId, Long settlementId) {
+        Settlement settlement = settlementRepository.findByIdAndGroup_Id(settlementId, groupId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "정산 내역을 찾을 수 없습니다."));
         settlement.complete();
         return SettlementResponse.from(settlement);

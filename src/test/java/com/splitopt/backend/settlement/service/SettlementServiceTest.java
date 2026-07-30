@@ -1,5 +1,6 @@
 package com.splitopt.backend.settlement.service;
 
+import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.group.domain.Group;
 import com.splitopt.backend.group.domain.GroupParticipant;
 import com.splitopt.backend.settlement.domain.ParticipantBalance;
@@ -82,7 +83,7 @@ class SettlementServiceTest {
     void rerunDeletesPendingKeepsCompleted() {
         List<ParticipantBalance> balances = List.of(bal(p1, "50000"), bal(p2, "-50000"));
         List<SettlementResponse> first = settlementService.optimizeAndSave(group.getId(), balances);
-        settlementService.complete(first.get(0).id());
+        settlementService.complete(group.getId(), first.get(0).id());
 
         settlementService.optimizeAndSave(group.getId(), balances);
 
@@ -98,10 +99,20 @@ class SettlementServiceTest {
         List<SettlementResponse> saved = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000")));
 
-        SettlementResponse completed = settlementService.complete(saved.get(0).id());
+        SettlementResponse completed = settlementService.complete(group.getId(), saved.get(0).id());
 
         assertEquals("COMPLETED", completed.status());
         assertNotNull(completed.completedAt());
+    }
+
+    @Test
+    @DisplayName("다른 모임 id로는 정산을 완료할 수 없다")
+    void cannotCompleteFromAnotherGroup() {
+        List<SettlementResponse> saved = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000")));
+        Long otherGroupId = group.getId() + 999;
+        assertThrows(BusinessException.class,
+                () -> settlementService.complete(otherGroupId, saved.get(0).id()));
     }
 
     @Test
@@ -110,8 +121,8 @@ class SettlementServiceTest {
         List<SettlementResponse> saved = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000")));
         Long id = saved.get(0).id();
-        settlementService.complete(id);
-        assertThrows(IllegalStateException.class, () -> settlementService.complete(id));
+        settlementService.complete(group.getId(), id);
+        assertThrows(IllegalStateException.class, () -> settlementService.complete(group.getId(), id));
     }
 
     @Test
@@ -119,7 +130,7 @@ class SettlementServiceTest {
     void summaryCountsAndRate() {
         List<SettlementResponse> saved = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "120000"), bal(p2, "-40000"), bal(p3, "-80000")));
-        settlementService.complete(saved.get(0).id());
+        settlementService.complete(group.getId(), saved.get(0).id());
 
         SettlementSummaryResponse summary = settlementService.getSummary(group.getId());
 
@@ -144,7 +155,7 @@ class SettlementServiceTest {
     void getPendingReturnsOnlyPending() {
         List<SettlementResponse> saved = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "120000"), bal(p2, "-40000"), bal(p3, "-80000")));
-        settlementService.complete(saved.get(0).id());
+        settlementService.complete(group.getId(), saved.get(0).id());
 
         List<SettlementResponse> pending = settlementService.getPending(group.getId());
         assertEquals(1, pending.size());

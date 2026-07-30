@@ -7,10 +7,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface SettlementRepository extends JpaRepository<Settlement, Long> {
 
     List<Settlement> findByGroup_Id(Long groupId);
+
+    /** 정산 건을 모임 범위로 조회 — 다른 모임의 정산을 건드리지 못하게 한다. */
+    Optional<Settlement> findByIdAndGroup_Id(Long id, Long groupId);
 
     List<Settlement> findByGroup_IdAndStatus(Long groupId, SettlementStatus status);
 

@@ -43,6 +43,6 @@ public class SettlementController {
     public ApiResponse<SettlementResponse> complete(
             @PathVariable Long groupId,
             @PathVariable Long settlementId) {
-        return ApiResponse.success(settlementService.complete(settlementId), "정산 완료 처리되었습니다.");
+        return ApiResponse.success(settlementService.complete(groupId, settlementId), "정산 완료 처리되었습니다.");
     }
 }
