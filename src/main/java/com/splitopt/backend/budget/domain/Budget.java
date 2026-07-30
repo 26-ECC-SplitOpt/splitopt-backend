@@ -52,5 +52,12 @@ public class Budget extends BaseEntity {
         if (amount == null || amount.signum() < 0) {
             throw new IllegalArgumentException("amount must be zero or positive");
         }
+        // DECIMAL(12,2) 범위를 도메인에서도 강제 — 서비스 직접 호출(MVC 우회) 방어
+        if (amount.scale() > 2) {
+            throw new IllegalArgumentException("amount scale must be at most 2");
+        }
+        if (amount.precision() - amount.scale() > 10) {
+            throw new IllegalArgumentException("amount integral digits must be at most 10");
+        }
     }
 }

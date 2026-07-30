@@ -81,4 +81,18 @@ class BudgetServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> budgetService.upsert(group.getId(), new BigDecimal("-1")));
     }
+
+    @Test
+    @DisplayName("소수점 3자리 예산은 도메인에서 거부된다 (서비스 직접 호출)")
+    void rejectsExcessiveScale() {
+        assertThrows(IllegalArgumentException.class,
+                () -> budgetService.upsert(group.getId(), new BigDecimal("100.001")));
+    }
+
+    @Test
+    @DisplayName("정수 11자리 예산은 도메인에서 거부된다 (DECIMAL(12,2) 초과)")
+    void rejectsOversizedInteger() {
+        assertThrows(IllegalArgumentException.class,
+                () -> budgetService.upsert(group.getId(), new BigDecimal("12345678901")));
+    }
 }
