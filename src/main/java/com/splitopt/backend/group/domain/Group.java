@@ -45,7 +45,7 @@ public class Group extends BaseEntity {
         this.description = description;
         this.owner = owner;
         this.inviteCode = inviteCode;
-        this.currency = (currency != null && !currency.isBlank()) ? currency : "KRW";
+        this.currency = "KRW";
     }
 
     // 모임 정보 수정용 메서드
