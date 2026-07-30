@@ -74,7 +74,13 @@ public class SettlementService {
     /** 미정산 내역 조회 (API 28). */
     @Transactional(readOnly = true)
     public List<SettlementResponse> getPending(Long groupId) {
-        return settlementRepository.findByGroup_IdAndStatus(groupId, SettlementStatus.PENDING).stream()
+        return getByStatus(groupId, SettlementStatus.PENDING);
+    }
+
+    /** 상태별 정산 조회 (API 25/28 공통). */
+    @Transactional(readOnly = true)
+    public List<SettlementResponse> getByStatus(Long groupId, SettlementStatus status) {
+        return settlementRepository.findByGroup_IdAndStatus(groupId, status).stream()
                 .map(SettlementResponse::from)
                 .toList();
     }

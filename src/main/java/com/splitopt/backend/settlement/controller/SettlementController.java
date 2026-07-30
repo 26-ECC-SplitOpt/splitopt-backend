@@ -1,6 +1,9 @@
 package com.splitopt.backend.settlement.controller;
 
+import com.splitopt.backend.global.exception.BusinessException;
+import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.global.response.ApiResponse;
+import com.splitopt.backend.settlement.domain.SettlementStatus;
 import com.splitopt.backend.settlement.dto.SettlementResponse;
 import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.service.SettlementService;
@@ -21,15 +24,24 @@ public class SettlementController {
 
     private final SettlementService settlementService;
 
-    /** 정산 결과 전체 조회(25) / 미정산 조회(28, ?status=pending). */
+    /** 정산 결과 전체 조회(25) / 상태별 조회(28, ?status=pending|completed). */
     @GetMapping
     public ApiResponse<List<SettlementResponse>> getSettlements(
             @PathVariable Long groupId,
             @RequestParam(required = false) String status) {
-        List<SettlementResponse> result = "pending".equalsIgnoreCase(status)
-                ? settlementService.getPending(groupId)
-                : settlementService.getSettlements(groupId);
+        List<SettlementResponse> result = (status == null || status.isBlank())
+                ? settlementService.getSettlements(groupId)
+                : settlementService.getByStatus(groupId, parseStatus(status));
         return ApiResponse.success(result);
+    }
+
+    /** status 파라미터 파싱 — 지원하지 않는 값은 400으로 거부(조용한 전체 반환 방지). */
+    private SettlementStatus parseStatus(String status) {
+        try {
+            return SettlementStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "지원하지 않는 정산 상태입니다: " + status);
+        }
     }
 
     /** 전체 정산 완료 여부 조회(29). */
