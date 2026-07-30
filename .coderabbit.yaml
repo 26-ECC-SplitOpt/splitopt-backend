@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit 코드리뷰 설정 — https://docs.coderabbit.ai/getting-started/configure-coderabbit
+
+language: "ko-KR"
+tone_instructions: "간결하고 정중한 존댓말로 리뷰해 주세요. 핵심 이슈 위주로 짚어주세요."
+early_access: false
+
+reviews:
+  profile: "chill"                 # 학생 팀 프로젝트에 맞게 과하지 않게
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  poem: false
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false                  # Draft PR은 리뷰하지 않음
+    base_branches:
+      - "main"
+  path_instructions:
+    - path: "**/*.java"
+      instructions: >-
+        Spring Boot / Java 21 기준으로 리뷰합니다.
+        - 계층 구조(controller/service/repository/domain/dto)와 공통 응답(ApiResponse)·전역 예외(GlobalExceptionHandler) 사용을 확인합니다.
+        - 금액은 BigDecimal, 시간은 LocalDateTime 사용을 권장합니다.
+        - 엔티티는 기본 생성자 접근 제한(PROTECTED)과 불변성을 확인합니다.
+    - path: "**/*Test.java"
+      instructions: >-
+        테스트가 엣지 케이스를 충분히 다루는지, 단언(assertion)이 구체적인지 확인합니다.
+    - path: "src/main/resources/db/migration/**"
+      instructions: >-
+        Flyway 마이그레이션은 되돌릴 수 없으므로, 제약조건·FK·인덱스·타입이 엔티티와 일치하는지 신중히 검토합니다.
+
+chat:
+  auto_reply: true
