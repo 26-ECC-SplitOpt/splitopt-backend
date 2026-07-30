@@ -31,7 +31,7 @@
 
 ## Project Structure
 
-```
+```text
 com.splitopt.backend
 ├── global/                 # 공통 모듈
 │   ├── config/             # JPA Auditing 등 설정
