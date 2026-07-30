@@ -11,11 +11,14 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -59,21 +62,39 @@ class FlywayMigrationTest {
                 }
             }
 
-            // 스키마 계약: FK·CHECK 제약이 실제로 생성됐는지 검증
-            try (Statement st = conn.createStatement()) {
-                try (ResultSet fk = st.executeQuery(
-                        "SELECT COUNT(*) FROM information_schema.referential_constraints" +
-                                " WHERE constraint_schema = '" + schema + "'")) {
+            // 스키마 계약: FK·CHECK 제약이 실제로 생성됐는지 검증 (파라미터 바인딩)
+            try (PreparedStatement fkStmt = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM information_schema.referential_constraints" +
+                            " WHERE constraint_schema = ?")) {
+                fkStmt.setString(1, schema);
+                try (ResultSet fk = fkStmt.executeQuery()) {
                     fk.next();
                     assertEquals(13, fk.getInt(1), "외래키(FK) 13개가 생성되어야 한다");
                 }
-                try (ResultSet ck = st.executeQuery(
-                        "SELECT COUNT(*) FROM information_schema.table_constraints" +
-                                " WHERE table_schema = '" + schema + "' AND constraint_type = 'CHECK'")) {
+            }
+            try (PreparedStatement ckStmt = conn.prepareStatement(
+                    "SELECT COUNT(*) FROM information_schema.table_constraints" +
+                            " WHERE table_schema = ? AND constraint_type = 'CHECK'")) {
+                ckStmt.setString(1, schema);
+                try (ResultSet ck = ckStmt.executeQuery()) {
                     ck.next();
                     assertEquals(8, ck.getInt(1), "CHECK 제약 8개가 생성되어야 한다");
                 }
             }
+
+            // 제약이 개수만이 아니라 실제로 '동작'하는지: 잘못된 INSERT가 거부되어야 한다
+            try (Statement seed = conn.createStatement()) {
+                seed.executeUpdate("INSERT INTO users(email, password, name) VALUES('t@t.com','p','T')");
+                seed.executeUpdate("INSERT INTO `groups`(name, owner_id) VALUES('g', 1)");
+                seed.executeUpdate("INSERT INTO group_participants(group_id, user_id, role) VALUES(1, 1, 'OWNER')");
+            }
+            // amount <= 0 은 CHECK(ck_exp_amount)로 거부되어야 함
+            assertThrows(SQLException.class, () -> {
+                try (Statement bad = conn.createStatement()) {
+                    bad.executeUpdate("INSERT INTO expenses(group_id, payer_id, title, amount, category, spent_at)" +
+                            " VALUES(1, 1, 'x', -1, 'c', NOW())");
+                }
+            }, "음수 금액 지출은 CHECK 제약으로 거부되어야 한다");
         }
     }
 }
