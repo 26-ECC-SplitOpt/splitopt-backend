@@ -22,13 +22,21 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	// DB 마이그레이션(Flyway) — 운영(MySQL) 스키마 버전 관리
+	// Spring Boot 4는 auto-config가 starter에 있어 flyway-core만으로는 부팅 시 실행되지 않음
+	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.flywaydb:flyway-mysql'
 	compileOnly 'org.projectlombok:lombok'
 	runtimeOnly 'com.h2database:h2'
-	runtimeOnly 'org.mariadb.jdbc:mariadb-java-client'
+	// 운영 DB: MySQL 전용 (Railway MySQL, jdbc:mysql://)
+	runtimeOnly 'com.mysql:mysql-connector-j'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	// Flyway 마이그레이션을 실제 MySQL(Testcontainers)로 CI에서 자동 검증
+	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+	testImplementation 'org.testcontainers:mysql:1.21.4'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
