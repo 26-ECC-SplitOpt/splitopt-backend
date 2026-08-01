@@ -21,6 +21,7 @@ public class AuthService {
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
+        // 이메일 중복 가입을 막기 위해 저장 전에 존재 여부를 확인한다.
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
