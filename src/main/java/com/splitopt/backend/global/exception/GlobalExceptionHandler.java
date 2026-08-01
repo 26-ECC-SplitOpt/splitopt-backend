@@ -50,9 +50,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(DataIntegrityViolationException e) {
-        log.warn("DataIntegrityViolationException: {}", e.getMostSpecificCause().getMessage());
-        return ResponseEntity.status(ErrorCode.DUPLICATE_EMAIL.getStatus())
-                .body(ApiResponse.fail(ErrorCode.DUPLICATE_EMAIL.getMessage()));
+        boolean duplicateEmail = String.valueOf(e.getMostSpecificCause().getMessage())
+                .contains("uk_users_email");
+        log.warn("DataIntegrityViolation: {}", duplicateEmail ? "uk_users_email" : "other");
+
+        ErrorCode code = duplicateEmail ? ErrorCode.DUPLICATE_EMAIL : ErrorCode.INTERNAL_SERVER_ERROR;
+        return ResponseEntity.status(code.getStatus()).body(ApiResponse.fail(code.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

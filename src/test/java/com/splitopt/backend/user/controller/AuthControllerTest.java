@@ -22,6 +22,7 @@ import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.containsString;
 
 @WebMvcTest(controllers = AuthController.class)
 @Import(GlobalExceptionHandler.class)
@@ -37,12 +38,13 @@ class AuthControllerTest {
     @Test
     @DisplayName("회원가입 성공 시 201")
     void signup_success() throws Exception {
+        LocalDateTime createdAt = LocalDateTime.of(2026, 8, 1, 12, 0);
         given(authService.signup(any())).willReturn(
                 SignupResponse.builder()
                         .userId(1L)
                         .email("user@example.com")
                         .name("홍길동")
-                        .createdAt(LocalDateTime.now())
+                        .createdAt(createdAt)
                         .build()
         );
 
@@ -55,7 +57,10 @@ class AuthControllerTest {
                         .content(body))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.userId").value(1));
+                .andExpect(jsonPath("$.data.userId").value(1))
+                .andExpect(jsonPath("$.data.email").value("user@example.com"))
+                .andExpect(jsonPath("$.data.name").value("홍길동"))
+                .andExpect(jsonPath("$.data.createdAt").exists());
     }
 
     @Test
@@ -72,7 +77,8 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(ErrorCode.DUPLICATE_EMAIL.getMessage()));
     }
 
     @Test
@@ -86,6 +92,7 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message", containsString("password")));
     }
 }
