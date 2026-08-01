@@ -26,7 +26,7 @@ public class AuthService {
         if (userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
-        
+
         User user = User.builder()
                 .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
