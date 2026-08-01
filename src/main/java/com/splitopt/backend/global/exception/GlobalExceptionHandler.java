@@ -3,6 +3,7 @@ package com.splitopt.backend.global.exception;
 import com.splitopt.backend.global.response.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSourceResolvable;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -45,6 +46,13 @@ public class GlobalExceptionHandler {
         log.warn("ParameterValidationException: {}", message);
         return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
                 .body(ApiResponse.fail(message));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(DataIntegrityViolationException e) {
+        log.warn("DataIntegrityViolationException: {}", e.getMostSpecificCause().getMessage());
+        return ResponseEntity.status(ErrorCode.DUPLICATE_EMAIL.getStatus())
+                .body(ApiResponse.fail(ErrorCode.DUPLICATE_EMAIL.getMessage()));
     }
 
     @ExceptionHandler(Exception.class)

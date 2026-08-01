@@ -21,14 +21,15 @@ public class AuthService {
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
         // 이메일 중복 가입을 막기 위해 저장 전에 존재 여부를 확인한다.
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmail(email)) {
             throw new BusinessException(ErrorCode.DUPLICATE_EMAIL);
         }
-
+        
         User user = User.builder()
-                .email(request.getEmail())
-                .password(passwordEncoder.encode(request.getPassword())) // 해시 저장
+                .email(email)
+                .password(passwordEncoder.encode(request.getPassword()))
                 .name(request.getName())
                 .build();
 
