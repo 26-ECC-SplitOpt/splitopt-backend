@@ -38,10 +38,12 @@ public class SettlementService {
 
     /**
      * 정산 최적화 실행 및 저장 (API 24).
-     * 재실행 정책: 기존 {@code PENDING}은 삭제 후 재생성하고, {@code COMPLETED}는 보존한다.
+     * 재실행 정책: 기존 {@code PENDING}은 삭제 후 재생성하고, {@code SENT}·{@code COMPLETED}는 보존한다
+     * (송금 중·완료 건은 실제로 오간 돈이라 초기화하지 않는다).
      *
      * @param groupId  모임 id
-     * @param balances 참여자별 잔액 (총합 0)
+     * @param balances 참여자별 잔액 (총합 0). 재실행 시에는 반드시 이미 정산된(SENT·COMPLETED) 금액을
+     *                 차감한 <b>순잔액</b>이어야 한다 — 그러지 않으면 이미 보낸 돈을 다시 만들어 이중청구가 된다.
      * @return 새로 생성된 정산 목록
      */
     @Transactional
@@ -108,7 +110,8 @@ public class SettlementService {
     public SettlementResponse changeStatus(Long groupId, Long settlementId,
                                            SettlementStatusChangeRequest.Action action,
                                            Long requesterParticipantId) {
-        Settlement settlement = settlementRepository.findByIdAndGroup_Id(settlementId, groupId)
+        // 잠금 조회: 동시 전이 요청의 lost update 방지 (두 번째 요청은 갱신된 상태를 읽어 상태 가드에서 걸림)
+        Settlement settlement = settlementRepository.findByIdAndGroup_IdForUpdate(settlementId, groupId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "정산 내역을 찾을 수 없습니다."));
 
         Long from = settlement.getFromParticipant().getId();

@@ -170,6 +170,22 @@ class SettlementServiceTest {
     }
 
     @Test
+    @DisplayName("권한: CANCEL은 보내는 사람만 — 받는 사람이 하면 403이고 상태는 SENT 유지")
+    void cancelByNonSenderForbidden() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CANCEL, s.toParticipantId()));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+
+        // 거부됐으므로 상태는 SENT 그대로여야 함(PENDING으로 되돌아가지 않음)
+        assertEquals(1, settlementService.getByStatus(group.getId(), SettlementStatus.SENT).size());
+        assertTrue(settlementService.getByStatus(group.getId(), SettlementStatus.PENDING).isEmpty());
+    }
+
+    @Test
     @DisplayName("상태충돌: PENDING에서 CONFIRM(송금 전 확인)은 409(INVALID_STATE)")
     void confirmBeforeSendConflict() {
         SettlementResponse s = settlementService.optimizeAndSave(
