@@ -1,11 +1,14 @@
 package com.splitopt.backend.settlement.service;
 
 import com.splitopt.backend.global.exception.BusinessException;
+import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.group.domain.Group;
 import com.splitopt.backend.group.domain.GroupParticipant;
 import com.splitopt.backend.settlement.domain.ParticipantBalance;
 import com.splitopt.backend.settlement.domain.SettlementStatus;
+import com.splitopt.backend.settlement.dto.MySettlementsResponse;
 import com.splitopt.backend.settlement.dto.SettlementResponse;
+import com.splitopt.backend.settlement.dto.SettlementStatusChangeRequest.Action;
 import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.repository.SettlementRepository;
 import com.splitopt.backend.user.domain.User;
@@ -20,6 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,6 +67,12 @@ class SettlementServiceTest {
         return new ParticipantBalance(p.getId(), new BigDecimal(amount));
     }
 
+    /** 전이 헬퍼: 보내는 사람(from)이 SEND → 받는 사람(to)이 CONFIRM 하여 COMPLETED로 만든다. */
+    private SettlementResponse completeFully(SettlementResponse s) {
+        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+        return settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.toParticipantId());
+    }
+
     @Test
     @DisplayName("최적화 실행 시 송금 목록이 PENDING 상태로 저장된다")
     void optimizeAndSavePersistsTransfers() {
@@ -83,7 +94,7 @@ class SettlementServiceTest {
     void rerunDeletesPendingKeepsCompleted() {
         List<ParticipantBalance> balances = List.of(bal(p1, "50000"), bal(p2, "-50000"));
         List<SettlementResponse> first = settlementService.optimizeAndSave(group.getId(), balances);
-        settlementService.complete(group.getId(), first.get(0).id());
+        completeFully(first.get(0));
 
         settlementService.optimizeAndSave(group.getId(), balances);
 
@@ -94,43 +105,122 @@ class SettlementServiceTest {
     }
 
     @Test
-    @DisplayName("정산 완료 처리 시 상태·완료시각이 기록된다")
-    void completeMarksStatusAndTime() {
-        List<SettlementResponse> saved = settlementService.optimizeAndSave(
-                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000")));
+    @DisplayName("SEND: 보내는 사람이 송금 완료하면 SENT·송금시각 기록")
+    void sendMarksSentAndTime() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
 
-        SettlementResponse completed = settlementService.complete(group.getId(), saved.get(0).id());
+        SettlementResponse sent = settlementService.changeStatus(
+                group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+
+        assertEquals("SENT", sent.status());
+        assertNotNull(sent.sentAt());
+        assertNull(sent.completedAt());
+    }
+
+    @Test
+    @DisplayName("CONFIRM: 받는 사람이 확인하면 COMPLETED·완료시각 기록")
+    void confirmMarksCompleted() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+
+        SettlementResponse completed = settlementService.changeStatus(
+                group.getId(), s.id(), Action.CONFIRM, s.toParticipantId());
 
         assertEquals("COMPLETED", completed.status());
         assertNotNull(completed.completedAt());
     }
 
     @Test
-    @DisplayName("다른 모임 id로는 정산을 완료할 수 없다")
-    void cannotCompleteFromAnotherGroup() {
-        List<SettlementResponse> saved = settlementService.optimizeAndSave(
-                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000")));
+    @DisplayName("CANCEL: 확인 전(SENT) 보내는 사람이 취소하면 PENDING·송금시각 복원")
+    void cancelRestoresPending() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+
+        SettlementResponse cancelled = settlementService.changeStatus(
+                group.getId(), s.id(), Action.CANCEL, s.fromParticipantId());
+
+        assertEquals("PENDING", cancelled.status());
+        assertNull(cancelled.sentAt());
+    }
+
+    @Test
+    @DisplayName("권한: SEND는 보내는 사람만 — 받는 사람이 하면 403(ACCESS_DENIED)")
+    void sendByNonSenderForbidden() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.toParticipantId()));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("권한: CONFIRM은 받는 사람만 — 보내는 사람이 하면 403(ACCESS_DENIED)")
+    void confirmByNonReceiverForbidden() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.fromParticipantId()));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("상태충돌: PENDING에서 CONFIRM(송금 전 확인)은 409(INVALID_STATE)")
+    void confirmBeforeSendConflict() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.toParticipantId()));
+        assertEquals(ErrorCode.INVALID_STATE, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("상태충돌: COMPLETED 건의 CANCEL은 409(INVALID_STATE)")
+    void cancelCompletedConflict() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        completeFully(s);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CANCEL, s.fromParticipantId()));
+        assertEquals(ErrorCode.INVALID_STATE, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("다른 모임 id로는 상태를 변경할 수 없다(ENTITY_NOT_FOUND)")
+    void cannotChangeStatusFromAnotherGroup() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
         Long otherGroupId = group.getId() + 999;
-        assertThrows(BusinessException.class,
-                () -> settlementService.complete(otherGroupId, saved.get(0).id()));
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> settlementService.changeStatus(otherGroupId, s.id(), Action.SEND, s.fromParticipantId()));
+        assertEquals(ErrorCode.ENTITY_NOT_FOUND, ex.getErrorCode());
     }
 
     @Test
-    @DisplayName("이미 완료된 건을 다시 완료 처리하면 예외")
-    void completingTwiceFails() {
-        List<SettlementResponse> saved = settlementService.optimizeAndSave(
-                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000")));
-        Long id = saved.get(0).id();
-        settlementService.complete(group.getId(), id);
-        assertThrows(IllegalStateException.class, () -> settlementService.complete(group.getId(), id));
+    @DisplayName("상태충돌: 이미 SENT인 건에 다시 SEND하면 409(INVALID_STATE)")
+    void sendTwiceConflict() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId()));
+        assertEquals(ErrorCode.INVALID_STATE, ex.getErrorCode());
     }
 
     @Test
-    @DisplayName("요약: 완료율·전체 완료 여부를 계산한다")
+    @DisplayName("요약: 일부만 완료면 IN_PROGRESS·완료율·allCompleted false")
     void summaryCountsAndRate() {
         List<SettlementResponse> saved = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "120000"), bal(p2, "-40000"), bal(p3, "-80000")));
-        settlementService.complete(group.getId(), saved.get(0).id());
+        completeFully(saved.get(0));
 
         SettlementSummaryResponse summary = settlementService.getSummary(group.getId());
 
@@ -139,15 +229,34 @@ class SettlementServiceTest {
         assertEquals(1, summary.pending());
         assertFalse(summary.allCompleted());
         assertEquals(0.5, summary.completionRate(), 0.0001);
+        assertEquals(SettlementSummaryResponse.Status.IN_PROGRESS, summary.status());
     }
 
     @Test
-    @DisplayName("정산 건이 없으면 요약은 완료율 1.0·전체완료 true")
-    void summaryEmptyIsAllCompleted() {
+    @DisplayName("요약: 모든 정산이 COMPLETED면 DONE·allCompleted true")
+    void summaryAllCompletedIsDone() {
+        List<SettlementResponse> saved = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000")));
+        completeFully(saved.get(0));
+
         SettlementSummaryResponse summary = settlementService.getSummary(group.getId());
-        assertEquals(0, summary.total());
+
+        assertEquals(1, summary.total());
+        assertEquals(1, summary.completed());
+        assertEquals(0, summary.pending());
         assertTrue(summary.allCompleted());
         assertEquals(1.0, summary.completionRate(), 0.0001);
+        assertEquals(SettlementSummaryResponse.Status.DONE, summary.status());
+    }
+
+    @Test
+    @DisplayName("정산을 한 번도 안 돌린 모임은 NOT_STARTED('정산 전')·완료 아님")
+    void summaryEmptyIsNotStarted() {
+        SettlementSummaryResponse summary = settlementService.getSummary(group.getId());
+        assertEquals(0, summary.total());
+        assertFalse(summary.allCompleted());
+        assertEquals(0.0, summary.completionRate(), 0.0001);
+        assertEquals(SettlementSummaryResponse.Status.NOT_STARTED, summary.status());
     }
 
     @Test
@@ -155,7 +264,7 @@ class SettlementServiceTest {
     void getPendingReturnsOnlyPending() {
         List<SettlementResponse> saved = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "120000"), bal(p2, "-40000"), bal(p3, "-80000")));
-        settlementService.complete(group.getId(), saved.get(0).id());
+        completeFully(saved.get(0));
 
         List<SettlementResponse> pending = settlementService.getPending(group.getId());
         assertEquals(1, pending.size());
@@ -163,14 +272,80 @@ class SettlementServiceTest {
     }
 
     @Test
-    @DisplayName("내 정산 내역은 내가 보내거나 받는 건만 반환한다")
-    void getMineReturnsInvolvingUser() {
+    @DisplayName("내 정산(26): 받는 사람은 미완료 건이 toReceive에, 방향 RECEIVE로 분류된다")
+    void mineReceiverGoesToReceive() {
+        // p1(수령자) ← p2, p3(송금자) : p1 관점 두 건 모두 받을 내역
         settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "120000"), bal(p2, "-40000"), bal(p3, "-80000")));
 
-        Long u2Id = p2.getUser().getId();
-        List<SettlementResponse> mine = settlementService.getMySettlements(group.getId(), u2Id);
-        assertEquals(1, mine.size());
-        assertEquals(p2.getId(), mine.get(0).fromParticipantId());
+        MySettlementsResponse mine = settlementService.getMySettlements(group.getId(), p1.getUser().getId());
+
+        assertEquals(2, mine.toReceive().size());
+        assertTrue(mine.toSend().isEmpty());
+        assertTrue(mine.completed().isEmpty());
+        assertTrue(mine.toReceive().stream()
+                .allMatch(i -> i.direction() == MySettlementsResponse.Direction.RECEIVE));
+        assertTrue(mine.toReceive().stream().allMatch(i -> i.status().equals("PENDING")));
+        // 상대방 이름은 송금자(B, C)
+        assertEquals(Set.of("B", "C"),
+                mine.toReceive().stream().map(MySettlementsResponse.Item::counterpartName)
+                        .collect(Collectors.toSet()));
+    }
+
+    @Test
+    @DisplayName("내 정산(26): 보내는 사람은 toSend에, 방향 SEND·상대는 수령자 이름")
+    void mineSenderGoesToSend() {
+        settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "120000"), bal(p2, "-40000"), bal(p3, "-80000")));
+
+        MySettlementsResponse mine = settlementService.getMySettlements(group.getId(), p2.getUser().getId());
+
+        assertEquals(1, mine.toSend().size());
+        assertTrue(mine.toReceive().isEmpty());
+        MySettlementsResponse.Item item = mine.toSend().get(0);
+        assertEquals(MySettlementsResponse.Direction.SEND, item.direction());
+        assertEquals("A", item.counterpartName());
+        assertEquals("PENDING", item.status());
+    }
+
+    @Test
+    @DisplayName("내 정산(26): SENT는 아직 미완료라 받는 사람의 toReceive에 SENT로 보인다")
+    void mineSentStaysInToReceive() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+
+        MySettlementsResponse receiver = settlementService.getMySettlements(group.getId(), p1.getUser().getId());
+        assertEquals(1, receiver.toReceive().size());
+        assertEquals("SENT", receiver.toReceive().get(0).status());
+        assertTrue(receiver.completed().isEmpty());
+    }
+
+    @Test
+    @DisplayName("내 정산(26): COMPLETED는 방향과 무관하게 양측 completed로 분류된다")
+    void mineCompletedGoesToCompleted() {
+        SettlementResponse s = settlementService.optimizeAndSave(
+                group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
+        completeFully(s);
+
+        MySettlementsResponse sender = settlementService.getMySettlements(group.getId(), p2.getUser().getId());
+        MySettlementsResponse receiver = settlementService.getMySettlements(group.getId(), p1.getUser().getId());
+
+        assertEquals(1, sender.completed().size());
+        assertTrue(sender.toSend().isEmpty());
+        assertEquals(MySettlementsResponse.Direction.SEND, sender.completed().get(0).direction());
+
+        assertEquals(1, receiver.completed().size());
+        assertTrue(receiver.toReceive().isEmpty());
+        assertEquals(MySettlementsResponse.Direction.RECEIVE, receiver.completed().get(0).direction());
+    }
+
+    @Test
+    @DisplayName("내 정산(26): 정산이 없으면 세 목록 모두 비어 있다")
+    void mineEmptyWhenNoSettlements() {
+        MySettlementsResponse mine = settlementService.getMySettlements(group.getId(), p1.getUser().getId());
+        assertTrue(mine.toSend().isEmpty());
+        assertTrue(mine.toReceive().isEmpty());
+        assertTrue(mine.completed().isEmpty());
     }
 }

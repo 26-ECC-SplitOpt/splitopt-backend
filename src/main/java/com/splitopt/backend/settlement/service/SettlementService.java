@@ -8,7 +8,9 @@ import com.splitopt.backend.settlement.domain.Settlement;
 import com.splitopt.backend.settlement.domain.SettlementStatus;
 import com.splitopt.backend.settlement.domain.ParticipantBalance;
 import com.splitopt.backend.settlement.domain.SettlementTransfer;
+import com.splitopt.backend.settlement.dto.MySettlementsResponse;
 import com.splitopt.backend.settlement.dto.SettlementResponse;
+import com.splitopt.backend.settlement.dto.SettlementStatusChangeRequest;
 import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.optimizer.SettlementOptimizer;
 import com.splitopt.backend.settlement.repository.SettlementRepository;
@@ -85,21 +87,64 @@ public class SettlementService {
                 .toList();
     }
 
-    /** 내 정산 내역 조회 (API 26). userId는 인증에서 주입 예정. */
+    /**
+     * 내 정산 내역 조회 (API 26, 개정안 C-3). 보낼/받을/완료로 분류해 반환.
+     * userId는 인증에서 주입 예정(현재는 컨트롤러에서 헤더로 전달).
+     */
     @Transactional(readOnly = true)
-    public List<SettlementResponse> getMySettlements(Long groupId, Long userId) {
-        return settlementRepository.findMine(groupId, userId).stream()
-                .map(SettlementResponse::from)
-                .toList();
+    public MySettlementsResponse getMySettlements(Long groupId, Long userId) {
+        return MySettlementsResponse.from(settlementRepository.findMine(groupId, userId), userId);
     }
 
-    /** 정산 완료 처리 (API 27). 경로의 모임에 속한 정산만 완료할 수 있다. */
+    /**
+     * 정산 상태 변경 (API 27, 개정안 C-4). 경로의 모임에 속한 정산만 대상.
+     *
+     * <p>권한: SEND/CANCEL은 보내는 사람(from)만, CONFIRM은 받는 사람(to)만 — 그 외 403.
+     * 상태 전이 위반(예: 이미 SENT인데 SEND)은 409.
+     *
+     * @param requesterParticipantId 요청자의 참여자 id (인증 연동 시 로그인 참여자로 주입)
+     */
     @Transactional
-    public SettlementResponse complete(Long groupId, Long settlementId) {
+    public SettlementResponse changeStatus(Long groupId, Long settlementId,
+                                           SettlementStatusChangeRequest.Action action,
+                                           Long requesterParticipantId) {
         Settlement settlement = settlementRepository.findByIdAndGroup_Id(settlementId, groupId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "정산 내역을 찾을 수 없습니다."));
-        settlement.complete();
+
+        Long from = settlement.getFromParticipant().getId();
+        Long to = settlement.getToParticipant().getId();
+
+        switch (action) {
+            case SEND -> {
+                requireRequester(requesterParticipantId, from, "송금 완료는 보내는 사람만 처리할 수 있습니다.");
+                transit(settlement::markSent);
+            }
+            case CONFIRM -> {
+                requireRequester(requesterParticipantId, to, "송금 확인은 받는 사람만 처리할 수 있습니다.");
+                transit(settlement::confirm);
+            }
+            case CANCEL -> {
+                requireRequester(requesterParticipantId, from, "송금 취소는 보내는 사람만 처리할 수 있습니다.");
+                transit(settlement::cancelSend);
+            }
+        }
         return SettlementResponse.from(settlement);
+    }
+
+    /** 요청자가 허용된 참여자인지 검증 — 아니면 403. */
+    private void requireRequester(Long requesterParticipantId, Long allowedParticipantId, String message) {
+        if (requesterParticipantId == null || !requesterParticipantId.equals(allowedParticipantId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, message);
+        }
+    }
+
+    /** 도메인 상태 전이 실행 — 상태 위반(IllegalState)은 409로 변환. */
+    private void transit(Runnable transition) {
+        try {
+            transition.run();
+        } catch (IllegalStateException e) {
+            throw new BusinessException(ErrorCode.INVALID_STATE, e.getMessage());
+        }
     }
 
     /** 전체 정산 완료 여부 조회 (API 29). */

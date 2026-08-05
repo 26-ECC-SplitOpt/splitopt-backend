@@ -50,6 +50,9 @@ public class Settlement {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "sent_at")
+    private LocalDateTime sentAt;
+
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
@@ -68,13 +71,40 @@ public class Settlement {
         this.status = SettlementStatus.PENDING;
     }
 
-    /** 정산 완료 처리 (API 27). 이미 완료된 건은 예외. */
-    public void complete() {
-        if (this.status == SettlementStatus.COMPLETED) {
-            throw new IllegalStateException("already completed settlement: " + id);
+    /**
+     * 송금 완료 (API 27 SEND). {@code PENDING → SENT}, 송금 시각 기록.
+     * 이미 송금했거나 완료된 건이면 상태 위반 예외.
+     */
+    public void markSent() {
+        if (this.status != SettlementStatus.PENDING) {
+            throw new IllegalStateException("송금 완료할 수 없는 상태입니다: " + this.status);
+        }
+        this.status = SettlementStatus.SENT;
+        this.sentAt = LocalDateTime.now();
+    }
+
+    /**
+     * 송금 확인 (API 27 CONFIRM). {@code SENT → COMPLETED}, 완료 시각 기록.
+     * 아직 송금 전(PENDING)이거나 이미 완료면 상태 위반 예외.
+     */
+    public void confirm() {
+        if (this.status != SettlementStatus.SENT) {
+            throw new IllegalStateException("송금 확인할 수 없는 상태입니다(송금 전): " + this.status);
         }
         this.status = SettlementStatus.COMPLETED;
         this.completedAt = LocalDateTime.now();
+    }
+
+    /**
+     * 송금 완료 취소 (API 27 CANCEL, 권장). {@code SENT → PENDING}, 송금 시각 복원(NULL).
+     * 받는 사람 확인 전(SENT)에서만 허용 — 완료된 건은 취소 불가.
+     */
+    public void cancelSend() {
+        if (this.status != SettlementStatus.SENT) {
+            throw new IllegalStateException("송금 취소할 수 없는 상태입니다: " + this.status);
+        }
+        this.status = SettlementStatus.PENDING;
+        this.sentAt = null;
     }
 
     public boolean isPending() {
