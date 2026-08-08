@@ -3,8 +3,10 @@ package com.splitopt.backend.settlement.controller;
 import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.global.exception.GlobalExceptionHandler;
+import com.splitopt.backend.settlement.domain.SettlementStatus;
 import com.splitopt.backend.settlement.dto.MySettlementsResponse;
 import com.splitopt.backend.settlement.dto.SettlementResponse;
+import com.splitopt.backend.settlement.dto.SettlementStatusChangeRequest.Action;
 import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.service.SettlementService;
 import org.junit.jupiter.api.DisplayName;
@@ -20,8 +22,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -65,13 +65,16 @@ class SettlementControllerTest {
     void getSettlements_invalidStatus() throws Exception {
         mockMvc.perform(get("/api/groups/1/settlements").param("status", "pendng"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("지원하지 않는 정산 상태입니다: pendng"))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
-    @DisplayName("미정산 조회(28, ?status=pending) → 200")
+    @DisplayName("미정산 조회(28, ?status=pending) → 200, PENDING으로 변환되어 전달")
     void getSettlements_pending() throws Exception {
-        given(settlementService.getByStatus(eq(1L), any())).willReturn(List.of(sampleSettlement("PENDING")));
+        given(settlementService.getByStatus(eq(1L), eq(SettlementStatus.PENDING)))
+                .willReturn(List.of(sampleSettlement("PENDING")));
 
         mockMvc.perform(get("/api/groups/1/settlements").param("status", "pending"))
                 .andExpect(status().isOk())
@@ -79,14 +82,40 @@ class SettlementControllerTest {
     }
 
     @Test
-    @DisplayName("정산 요약(29) → 200, status 필드 포함")
-    void getSummary_ok() throws Exception {
+    @DisplayName("정산 요약(29) 진행 중 → 200, IN_PROGRESS")
+    void getSummary_inProgress() throws Exception {
         given(settlementService.getSummary(1L)).willReturn(SettlementSummaryResponse.of(3, 1));
 
         mockMvc.perform(get("/api/groups/1/settlements/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.total").value(3))
+                .andExpect(jsonPath("$.data.allCompleted").value(false))
                 .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"));
+    }
+
+    @Test
+    @DisplayName("정산 요약(29) 정산 전(total=0) → 200, NOT_STARTED (완료와 구분)")
+    void getSummary_notStarted() throws Exception {
+        given(settlementService.getSummary(1L)).willReturn(SettlementSummaryResponse.of(0, 0));
+
+        mockMvc.perform(get("/api/groups/1/settlements/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(0))
+                .andExpect(jsonPath("$.data.allCompleted").value(false))
+                .andExpect(jsonPath("$.data.status").value("NOT_STARTED"));
+    }
+
+    @Test
+    @DisplayName("정산 요약(29) 전부 완료 → 200, DONE")
+    void getSummary_done() throws Exception {
+        given(settlementService.getSummary(1L)).willReturn(SettlementSummaryResponse.of(3, 3));
+
+        mockMvc.perform(get("/api/groups/1/settlements/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.total").value(3))
+                .andExpect(jsonPath("$.data.completed").value(3))
+                .andExpect(jsonPath("$.data.allCompleted").value(true))
+                .andExpect(jsonPath("$.data.status").value("DONE"));
     }
 
     @Test
@@ -109,7 +138,7 @@ class SettlementControllerTest {
     @Test
     @DisplayName("상태 변경(27) SEND → 200")
     void changeStatus_ok() throws Exception {
-        given(settlementService.changeStatus(anyLong(), anyLong(), any(), anyLong()))
+        given(settlementService.changeStatus(1L, 5L, Action.SEND, 10L))
                 .willReturn(sampleSettlement("SENT"));
 
         mockMvc.perform(patch("/api/groups/1/settlements/5/status")
@@ -124,7 +153,7 @@ class SettlementControllerTest {
     @Test
     @DisplayName("상태 변경(27) 권한 없음 → 403")
     void changeStatus_forbidden() throws Exception {
-        given(settlementService.changeStatus(anyLong(), anyLong(), any(), anyLong()))
+        given(settlementService.changeStatus(1L, 5L, Action.SEND, 99L))
                 .willThrow(new BusinessException(ErrorCode.ACCESS_DENIED));
 
         mockMvc.perform(patch("/api/groups/1/settlements/5/status")
@@ -132,20 +161,41 @@ class SettlementControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"action\":\"SEND\"}"))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(ErrorCode.ACCESS_DENIED.getMessage()))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
-    @DisplayName("상태 변경(27) 상태 위반 → 409")
+    @DisplayName("상태 변경(27) 상태 위반 → 409(INVALID_STATE)")
     void changeStatus_conflict() throws Exception {
-        given(settlementService.changeStatus(anyLong(), anyLong(), any(), anyLong()))
+        given(settlementService.changeStatus(1L, 5L, Action.CONFIRM, 10L))
                 .willThrow(new BusinessException(ErrorCode.INVALID_STATE));
 
         mockMvc.perform(patch("/api/groups/1/settlements/5/status")
                         .header("X-Participant-Id", "10")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"action\":\"CONFIRM\"}"))
-                .andExpect(status().isConflict());
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value(ErrorCode.INVALID_STATE.getMessage()))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("상태 변경(27) 없는 정산 id → 404(ENTITY_NOT_FOUND)")
+    void changeStatus_notFound() throws Exception {
+        given(settlementService.changeStatus(1L, 404L, Action.SEND, 10L))
+                .willThrow(new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "정산 내역을 찾을 수 없습니다."));
+
+        mockMvc.perform(patch("/api/groups/1/settlements/404/status")
+                        .header("X-Participant-Id", "10")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"action\":\"SEND\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("정산 내역을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
@@ -155,6 +205,8 @@ class SettlementControllerTest {
                         .header("X-Participant-Id", "10")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("action: action은 필수입니다."));
     }
 }

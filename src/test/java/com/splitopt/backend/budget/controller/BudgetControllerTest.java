@@ -60,7 +60,9 @@ class BudgetControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":-1}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("amount: 예산 금액은 0 이상이어야 합니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
@@ -69,7 +71,10 @@ class BudgetControllerTest {
         mockMvc.perform(put("/api/groups/1/budget")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("amount: 예산 금액은 필수입니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
@@ -79,6 +84,8 @@ class BudgetControllerTest {
 
         mockMvc.perform(get("/api/groups/1/budget"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.groupId").value(1))
                 .andExpect(jsonPath("$.data.amount").value(200000));
     }
 
@@ -90,6 +97,8 @@ class BudgetControllerTest {
 
         mockMvc.perform(get("/api/groups/1/budget"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.success").value(false));
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("설정된 예산이 없습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 }
