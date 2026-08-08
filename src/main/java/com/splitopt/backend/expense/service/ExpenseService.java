@@ -12,6 +12,8 @@ import com.splitopt.backend.group.domain.Group;
 import com.splitopt.backend.group.domain.GroupParticipant;
 import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.group.repository.GroupRepository;
+import com.splitopt.backend.schedule.repository.ScheduleRepository;
+import com.splitopt.backend.schedule.domain.Schedule;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,7 @@ public class ExpenseService {
     private final ExpenseShareRepository expenseShareRepository;
     private final GroupRepository groupRepository;
     private final GroupParticipantRepository groupParticipantRepository;
+    private final ScheduleRepository scheduleRepository;
 
     @Transactional
     public ExpenseResponse createExpense(Long groupId, Long payerId, ExpenseCreateRequest request) {
@@ -45,10 +48,18 @@ public class ExpenseService {
         GroupParticipant payer = groupParticipantRepository.findByIdAndGroupId(payerId, groupId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 참여자가 아닙니다."));
 
+        // scheduleId가 있으면 그 일정을 찾아서 연결, 없으면 null(연결 안 함)
+        Schedule schedule = null;
+        if (request.scheduleId() != null) {
+            schedule = scheduleRepository.findByIdAndGroupId(request.scheduleId(), groupId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "일정을 찾을 수 없습니다."));
+        }
+
         // 1. 지출(Expense) 저장
         Expense expense = expenseRepository.save(Expense.builder()
                 .group(group)
                 .payer(payer)
+                .schedule(schedule)
                 .title(request.title())
                 .amount(request.amount())
                 .category(request.category())
@@ -174,17 +185,22 @@ public class ExpenseService {
         return ExpenseResponse.from(expense, shares);
     }
 
-    /** 지출 삭제(21). 결제자 본인만 가능.
-     *  TODO: "결제자 탈퇴 시 owner override 허용"은 팀에서 최종 확정 후 반영 예정 (3주차 회의 권장 사항, 미확정). */
+    /** 지출 삭제(21). 결제자 본인 또는 모임 개설자(owner)만 가능 (4주차 회의 채택). */
     @Transactional
     public void deleteExpense(Long groupId, Long expenseId, Long requesterId) {
         Expense expense = findExpenseOrThrow(groupId, expenseId);
 
-        if (!expense.isPayer(requesterId)) {
-            throw new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 삭제할 수 있습니다.");
+        GroupParticipant requester = groupParticipantRepository.findByIdAndGroupId(requesterId, groupId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 참여자가 아닙니다."));
+
+        boolean isPayer = expense.isPayer(requesterId);
+        boolean isOwner = requester.getRole() == GroupParticipant.Role.OWNER;
+
+        if (!isPayer && !isOwner) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인 또는 모임 개설자만 삭제할 수 있습니다.");
         }
 
-        expenseShareRepository.deleteAllByExpenseId(expenseId); // shares 먼저 삭제
+        expenseShareRepository.deleteAllByExpenseId(expenseId);
         expenseRepository.delete(expense);
     }
 

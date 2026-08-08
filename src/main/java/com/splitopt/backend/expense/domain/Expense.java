@@ -80,4 +80,9 @@ public class Expense extends BaseEntity {
     public boolean isPayer(Long participantId) {
         return this.payer.getId().equals(participantId);
     }
+
+    /** 일정 삭제 시 연결만 해제 (지출 데이터 자체는 유지). 36번 API에서 사용. */
+    public void clearSchedule() {
+        this.schedule = null;
+    }
 }

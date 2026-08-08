@@ -8,5 +8,6 @@ import java.util.Optional;
 
 public interface ExpenseRepository extends JpaRepository<Expense, Long> {
     List<Expense> findAllByGroupId(Long groupId);
+    List<Expense> findAllByScheduleId(Long scheduleId);
     Optional<Expense> findByIdAndGroupId(Long expenseId, Long groupId);
 }
