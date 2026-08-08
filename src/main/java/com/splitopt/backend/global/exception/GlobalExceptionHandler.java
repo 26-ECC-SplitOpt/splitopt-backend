@@ -86,17 +86,23 @@ public class GlobalExceptionHandler {
 
     private ErrorField toErrorField(FieldError err) {
         String field = err.getField();
-        String annotation = err.getCode(); // Email, Size, NotBlank...
-        String code = resolveValidationCode(field, annotation);
+        String code = resolveValidationCode(err);
         String message = err.getDefaultMessage() != null ? err.getDefaultMessage() : DEFAULT_MESSAGE;
         return new ErrorField(field, code, message);
     }
 
-    private String resolveValidationCode(String field, String annotation) {
+    private String resolveValidationCode(FieldError err) {
+        String field = err.getField();
+        String annotation = err.getCode(); // Email, Size, NotBlank...
+
         if ("email".equals(field)) {
             return "EMAIL_INVALID";
         }
         if ("password".equals(field) && "Size".equals(annotation)) {
+            Object rejected = err.getRejectedValue();
+            if (rejected instanceof String s && s.length() > 64) {
+                return "PASSWORD_TOO_LONG";
+            }
             return "PASSWORD_TOO_SHORT";
         }
         return "INVALID_INPUT";

@@ -14,8 +14,9 @@ public class SignupRequest {
     @Email
     private String email;
 
-    @NotBlank
-    @Size(min = 8, max = 64)
+    @NotBlank(message = "비밀번호를 입력해주세요.")
+    @Size(min = 8, message = "비밀번호는 8자 이상이어야 합니다.")
+    @Size(max = 64, message = "비밀번호는 64자 이하여야 합니다.")
     private String password;
 
     @NotBlank
