@@ -221,4 +221,24 @@ public class ExpenseService {
         return expenseRepository.findByIdAndGroupId(expenseId, groupId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "지출을 찾을 수 없습니다."));
     }
+
+    /** 참여자별 결제 총액. 정산 최적화(API 24)의 입력값으로 Part C가 사용. */
+    @Transactional(readOnly = true)
+    public Map<Long, BigDecimal> getPaidAmountsByParticipant(Long groupId) {
+        return expenseRepository.findAllByGroupId(groupId).stream()
+                .collect(Collectors.groupingBy(
+                        e -> e.getPayer().getId(),
+                        Collectors.reducing(BigDecimal.ZERO, Expense::getAmount, BigDecimal::add)
+                ));
+    }
+
+    /** 참여자별 부담 총액. 정산 최적화(API 24)의 입력값으로 Part C가 사용. */
+    @Transactional(readOnly = true)
+    public Map<Long, BigDecimal> getOwedAmountsByParticipant(Long groupId) {
+        return expenseShareRepository.findAllByExpense_GroupId(groupId).stream()
+                .collect(Collectors.groupingBy(
+                        s -> s.getParticipant().getId(),
+                        Collectors.reducing(BigDecimal.ZERO, ExpenseShare::getShareAmount, BigDecimal::add)
+                ));
+    }
 }

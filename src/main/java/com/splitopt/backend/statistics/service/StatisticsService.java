@@ -4,6 +4,7 @@ import com.splitopt.backend.expense.domain.Expense;
 import com.splitopt.backend.expense.domain.ExpenseShare;
 import com.splitopt.backend.expense.repository.ExpenseRepository;
 import com.splitopt.backend.expense.repository.ExpenseShareRepository;
+import com.splitopt.backend.expense.service.ExpenseService;
 import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.group.domain.GroupParticipant;
@@ -32,6 +33,7 @@ public class StatisticsService {
     private final ExpenseShareRepository expenseShareRepository;
     private final GroupParticipantRepository groupParticipantRepository;
     private final GroupRepository groupRepository;
+    private final ExpenseService expenseService;
 
     /** 모임 전체 지출 통계(30). */
     public GroupStatisticsResponse getGroupStatistics(Long groupId) {
@@ -45,7 +47,7 @@ public class StatisticsService {
 
         BigDecimal average = activeParticipants.isEmpty()
                 ? BigDecimal.ZERO
-                : total.divide(BigDecimal.valueOf(activeParticipants.size()), 0, RoundingMode.HALF_UP);
+                : total.divide(BigDecimal.valueOf(activeParticipants.size()), 2, RoundingMode.HALF_UP);
 
         return new GroupStatisticsResponse(total, expenses.size(), average);
     }
@@ -83,21 +85,8 @@ public class StatisticsService {
         List<GroupParticipant> activeParticipants =
                 groupParticipantRepository.findAllByGroupIdAndIsActiveTrue(groupId);
 
-        // 참여자별 결제액: expenses를 결제자(payer) 기준으로 묶어서 합계
-        List<Expense> expenses = expenseRepository.findAllByGroupId(groupId);
-        Map<Long, BigDecimal> paidByParticipant = expenses.stream()
-                .collect(Collectors.groupingBy(
-                        e -> e.getPayer().getId(),
-                        Collectors.reducing(BigDecimal.ZERO, Expense::getAmount, BigDecimal::add)
-                ));
-
-        // 참여자별 부담액: expense_shares를 참여자 기준으로 묶어서 합계
-        List<ExpenseShare> shares = expenseShareRepository.findAllByExpense_GroupId(groupId);
-        Map<Long, BigDecimal> owedByParticipant = shares.stream()
-                .collect(Collectors.groupingBy(
-                        s -> s.getParticipant().getId(),
-                        Collectors.reducing(BigDecimal.ZERO, ExpenseShare::getShareAmount, BigDecimal::add)
-                ));
+        Map<Long, BigDecimal> paidByParticipant = expenseService.getPaidAmountsByParticipant(groupId);
+        Map<Long, BigDecimal> owedByParticipant = expenseService.getOwedAmountsByParticipant(groupId);
 
         List<ParticipantStatisticsResponse.ParticipantItem> items = activeParticipants.stream()
                 .map(p -> {

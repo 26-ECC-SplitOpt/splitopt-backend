@@ -1,9 +1,9 @@
 INSERT INTO users (email, password, name, created_at, updated_at)
-VALUES ('juyoung@test.com', 'test1234', '주영', NOW(), NOW());
+VALUES ('juyoung@test.com', '$2a$10$zZyr7Wfu7Di2piWXkhYhFOrg9J3tH3YMTU9uMAOWl38g4W3.H2iUm', '주영', NOW(), NOW());
 INSERT INTO users (email, password, name, created_at, updated_at)
-VALUES ('subin@test.com', 'test1234', '수빈', NOW(), NOW());
+VALUES ('subin@test.com', '$2a$10$zZyr7Wfu7Di2piWXkhYhFOrg9J3tH3YMTU9uMAOWl38g4W3.H2iUm', '수빈', NOW(), NOW());
 INSERT INTO users (email, password, name, created_at, updated_at)
-VALUES ('chaebin@test.com', 'test1234', '채빈', NOW(), NOW());
+VALUES ('chaebin@test.com', '$2a$10$zZyr7Wfu7Di2piWXkhYhFOrg9J3tH3YMTU9uMAOWl38g4W3.H2iUm', '채빈', NOW(), NOW());
 
 INSERT INTO "groups" (name, description, owner_id, currency, created_at, updated_at)
 VALUES ('제주도 여행', '테스트 모임', 1, 'KRW', NOW(), NOW());
