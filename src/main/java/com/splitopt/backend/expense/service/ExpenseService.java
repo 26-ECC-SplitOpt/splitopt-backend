@@ -136,4 +136,60 @@ public class ExpenseService {
         }
         return map;
     }
+
+    /** 지출 목록 조회(18). */
+    @Transactional(readOnly = true)
+    public List<ExpenseResponse> getExpenses(Long groupId) {
+        return expenseRepository.findAllByGroupId(groupId).stream()
+                .map(expense -> ExpenseResponse.from(expense, expenseShareRepository.findAllByExpenseId(expense.getId())))
+                .toList();
+    }
+
+    /** 지출 상세 조회(19). */
+    @Transactional(readOnly = true)
+    public ExpenseResponse getExpense(Long groupId, Long expenseId) {
+        Expense expense = findExpenseOrThrow(groupId, expenseId);
+        return ExpenseResponse.from(expense, expenseShareRepository.findAllByExpenseId(expenseId));
+    }
+
+    /** 지출 수정(20). 결제자 본인만 가능 (3주차 회의 D조항). */
+    @Transactional
+    public ExpenseResponse updateExpense(Long groupId, Long expenseId, Long requesterId, ExpenseCreateRequest request) {
+        Expense expense = findExpenseOrThrow(groupId, expenseId);
+
+        if (!expense.isPayer(requesterId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 수정할 수 있습니다.");
+        }
+
+        expense.update(request.title(), request.amount(), request.category(), request.memo(), request.spentAt());
+
+        // 기존 부담 내역은 지우고 새로 계산해서 다시 저장 (금액이 바뀌었을 수 있으니 재계산 필수)
+        expenseShareRepository.deleteAllByExpenseId(expenseId);
+        GroupParticipant payer = expense.getPayer();
+        List<ExpenseShare> shares = (request.splitMethod() == ExpenseCreateRequest.SplitMethod.EQUAL)
+                ? buildEqualShares(expense, groupId, request, payer)
+                : buildDirectShares(expense, groupId, request);
+        expenseShareRepository.saveAll(shares);
+
+        return ExpenseResponse.from(expense, shares);
+    }
+
+    /** 지출 삭제(21). 결제자 본인만 가능.
+     *  TODO: "결제자 탈퇴 시 owner override 허용"은 팀에서 최종 확정 후 반영 예정 (3주차 회의 권장 사항, 미확정). */
+    @Transactional
+    public void deleteExpense(Long groupId, Long expenseId, Long requesterId) {
+        Expense expense = findExpenseOrThrow(groupId, expenseId);
+
+        if (!expense.isPayer(requesterId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 삭제할 수 있습니다.");
+        }
+
+        expenseShareRepository.deleteAllByExpenseId(expenseId); // shares 먼저 삭제
+        expenseRepository.delete(expense);
+    }
+
+    private Expense findExpenseOrThrow(Long groupId, Long expenseId) {
+        return expenseRepository.findByIdAndGroupId(expenseId, groupId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "지출을 찾을 수 없습니다."));
+    }
 }
