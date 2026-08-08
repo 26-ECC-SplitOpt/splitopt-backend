@@ -29,6 +29,11 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
      * 동일하게 동작한다. 갱신값은 MySQL 8.0.20에서 deprecated된 {@code VALUES(amount)} 대신
      * 파라미터를 다시 바인딩해 양쪽 DB에서 모두 유효하게 한다.
      *
+     * <p><b>호출 시 주의</b> — {@code clearAutomatically}로 <b>호출 트랜잭션의 영속성 컨텍스트
+     * 전체가 비워진다</b>(네이티브 쿼리가 우회한 변경을 이후 조회가 다시 읽게 하려면 필요).
+     * 같은 트랜잭션에서 관리 중이던 엔티티는 준영속이 되어 더티 체킹이 끊기므로, 호출 후에는
+     * 필요한 엔티티를 다시 조회해야 한다.
+     *
      * @return 영향받은 행 수 (MySQL: 삽입 1 / 값이 바뀐 수정 2 / 같은 값 재설정 0)
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)

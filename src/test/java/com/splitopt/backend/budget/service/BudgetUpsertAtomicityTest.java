@@ -83,11 +83,17 @@ class BudgetUpsertAtomicityTest {
     void tearDown() {
         // 테스트 트랜잭션 롤백이 없으므로 커밋된 픽스처를 직접 지운다.
         // (네이티브 SQL 대신 JPA 삭제 — `groups`는 예약어라 DB별 인용 방식이 달라진다.)
+        // setUp이 커밋 전에 실패하면 id가 null이므로 건너뛴다 — 정리 중 2차 예외가
+        // 원래 실패 원인을 가리지 않게 한다.
         tx.executeWithoutResult(status -> {
-            budgetRepository.findByGroup_Id(groupId).ifPresent(budgetRepository::delete);
-            budgetRepository.flush();
-            em.remove(em.getReference(Group.class, groupId));
-            em.remove(em.getReference(User.class, userId));
+            if (groupId != null) {
+                budgetRepository.findByGroup_Id(groupId).ifPresent(budgetRepository::delete);
+                budgetRepository.flush();
+                em.remove(em.getReference(Group.class, groupId));
+            }
+            if (userId != null) {
+                em.remove(em.getReference(User.class, userId));
+            }
         });
     }
 
@@ -149,7 +155,9 @@ class BudgetUpsertAtomicityTest {
     @DisplayName("수정 시 created_at은 최초 설정 시각으로 보존된다 (감사 이력 유지)")
     void updatePreservesCreatedAt() {
         budgetService.upsert(groupId, new BigDecimal("100000"));
-        LocalDateTime createdAt = readBudget().getCreatedAt();
+        Budget initial = readBudget();
+        LocalDateTime createdAt = initial.getCreatedAt();
+        LocalDateTime firstUpdatedAt = initial.getUpdatedAt();
         assertNotNull(createdAt, "최초 설정 시 created_at이 기록되어야 한다");
 
         // 별도 트랜잭션으로 수정 — H2는 CURRENT_TIMESTAMP가 트랜잭션 시작 시각으로 고정된다.
@@ -160,8 +168,10 @@ class BudgetUpsertAtomicityTest {
                 () -> assertEquals(createdAt, updated.getCreatedAt(),
                         "수정이 created_at을 덮어써서는 안 된다"),
                 () -> assertNotNull(updated.getUpdatedAt()),
-                () -> assertFalse(updated.getUpdatedAt().isBefore(createdAt),
-                        "updated_at은 created_at보다 앞설 수 없다"),
+                () -> assertFalse(updated.getUpdatedAt().isBefore(firstUpdatedAt),
+                        "updated_at은 이전 값보다 앞설 수 없다"),
+                // 금액이 바뀐 것이 UPDATE 경로가 실제로 실행됐다는 증거다.
+                // (updated_at의 전진은 시각 해상도에 의존하므로 단언하지 않는다)
                 () -> assertEquals(0, updated.getAmount().compareTo(new BigDecimal("250000")))
         );
     }
@@ -188,7 +198,10 @@ class BudgetUpsertAtomicityTest {
             for (Callable<Void> task : tasks) {
                 futures.add(pool.submit(() -> {
                     ready.countDown();
-                    start.await(5, TimeUnit.SECONDS);
+                    // 대기가 타임아웃되면 스레드가 순차 실행되어 동시성 검증이 조용히 무력화된다.
+                    if (!start.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("동시 시작 신호 대기 시간 초과");
+                    }
                     return task.call();
                 }));
             }
