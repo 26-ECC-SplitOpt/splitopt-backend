@@ -2,7 +2,9 @@ package com.splitopt.backend.settlement.repository;
 
 import com.splitopt.backend.settlement.domain.Settlement;
 import com.splitopt.backend.settlement.domain.SettlementStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -15,6 +17,15 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
 
     /** 정산 건을 모임 범위로 조회 — 다른 모임의 정산을 건드리지 못하게 한다. */
     Optional<Settlement> findByIdAndGroup_Id(Long id, Long groupId);
+
+    /**
+     * 상태 전이(API 27)용 잠금 조회. 동시 SEND/CONFIRM/CANCEL 요청이 같은 SENT 건을 함께 읽어
+     * 나중 커밋이 앞선 결과를 덮어쓰는 lost update를 막는다. 두 번째 요청은 첫 커밋을 기다린 뒤
+     * 갱신된 상태를 읽어 도메인 상태 가드에서 걸러진다(→ 409).
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from Settlement s where s.id = :id and s.group.id = :groupId")
+    Optional<Settlement> findByIdAndGroup_IdForUpdate(@Param("id") Long id, @Param("groupId") Long groupId);
 
     List<Settlement> findByGroup_IdAndStatus(Long groupId, SettlementStatus status);
 

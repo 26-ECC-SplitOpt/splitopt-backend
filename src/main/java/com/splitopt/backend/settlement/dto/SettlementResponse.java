@@ -17,6 +17,7 @@ public record SettlementResponse(
         String toName,
         BigDecimal amount,
         String status,
+        LocalDateTime sentAt,
         LocalDateTime completedAt
 ) {
     public static SettlementResponse from(Settlement s) {
@@ -28,6 +29,7 @@ public record SettlementResponse(
                 s.getToParticipant().getEffectiveDisplayName(),
                 s.getAmount(),
                 s.getStatus().name(),
+                s.getSentAt(),
                 s.getCompletedAt()
         );
     }

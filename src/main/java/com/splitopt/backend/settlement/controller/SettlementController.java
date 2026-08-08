@@ -4,9 +4,12 @@ import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.global.response.ApiResponse;
 import com.splitopt.backend.settlement.domain.SettlementStatus;
+import com.splitopt.backend.settlement.dto.MySettlementsResponse;
 import com.splitopt.backend.settlement.dto.SettlementResponse;
+import com.splitopt.backend.settlement.dto.SettlementStatusChangeRequest;
 import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.service.SettlementService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -14,8 +17,8 @@ import java.util.List;
 
 /**
  * 정산 조회·상태 관리 API.
- * <p>구현: 25(전체 조회) · 28(미정산 조회) · 29(요약) · 27(완료 처리).
- * <p>미구현(의존성 대기): 24 최적화 실행(잔액=지출 파트 필요) · 26 내 정산(인증 필요).
+ * <p>구현: 25(전체 조회) · 26(내 정산) · 28(미정산 조회) · 29(요약) · 27(상태 전이 SEND/CONFIRM/CANCEL).
+ * <p>미구현(의존성 대기): 24 최적화 실행(잔액=지출 파트 필요).
  */
 @RestController
 @RequestMapping("/api/groups/{groupId}/settlements")
@@ -50,11 +53,33 @@ public class SettlementController {
         return ApiResponse.success(settlementService.getSummary(groupId));
     }
 
-    /** 정산 완료 처리(27). */
-    @PatchMapping("/{settlementId}/status")
-    public ApiResponse<SettlementResponse> complete(
+    /**
+     * 내 정산 내역 조회(26) — 보낼/받을/완료로 분류.
+     *
+     * <p>{@code X-User-Id} 헤더는 로그인 사용자 식별용 임시 seam이다.
+     * 인증(1~4) 연동 시 로그인 사용자로 대체한다.
+     */
+    @GetMapping("/me")
+    public ApiResponse<MySettlementsResponse> getMySettlements(
             @PathVariable Long groupId,
-            @PathVariable Long settlementId) {
-        return ApiResponse.success(settlementService.complete(groupId, settlementId), "정산 완료 처리되었습니다.");
+            @RequestHeader("X-User-Id") Long userId) {
+        return ApiResponse.success(settlementService.getMySettlements(groupId, userId));
+    }
+
+    /**
+     * 정산 상태 변경(27) — 전이형(SEND/CONFIRM/CANCEL).
+     *
+     * <p>{@code X-Participant-Id} 헤더는 요청자(참여자) 식별용 임시 seam이다.
+     * 인증(1~4) 연동 시 로그인 참여자로 대체한다.
+     */
+    @PatchMapping("/{settlementId}/status")
+    public ApiResponse<SettlementResponse> changeStatus(
+            @PathVariable Long groupId,
+            @PathVariable Long settlementId,
+            @RequestHeader("X-Participant-Id") Long requesterParticipantId,
+            @Valid @RequestBody SettlementStatusChangeRequest request) {
+        return ApiResponse.success(
+                settlementService.changeStatus(groupId, settlementId, request.action(), requesterParticipantId),
+                "정산 상태가 변경되었습니다.");
     }
 }
