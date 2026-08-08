@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -45,8 +46,8 @@ public class ExpenseService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다."));
 
         // 결제자가 진짜 이 모임 소속인지 확인 (남의 모임에 등록 못 하게)
-        GroupParticipant payer = groupParticipantRepository.findByIdAndGroupId(payerId, groupId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 참여자가 아닙니다."));
+        GroupParticipant payer = groupParticipantRepository.findByIdAndGroupIdAndIsActiveTrue(payerId, groupId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 활성 참여자가 아닙니다."));
 
         // scheduleId가 있으면 그 일정을 찾아서 연결, 없으면 null(연결 안 함)
         Schedule schedule = null;
@@ -136,6 +137,9 @@ public class ExpenseService {
 
     /** 요청에 담긴 participantId들이 실제로 이 모임 소속(활성)인지 검증하고, ID→엔티티 맵으로 변환. */
     private Map<Long, GroupParticipant> loadParticipants(Long groupId, List<Long> participantIds) {
+        if (participantIds.size() != new HashSet<>(participantIds).size()) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "부담자 목록에 중복된 참여자가 있습니다.");
+        }
         List<GroupParticipant> active = groupParticipantRepository.findAllByGroupIdAndIsActiveTrue(groupId);
         Map<Long, GroupParticipant> map = active.stream()
                 .collect(Collectors.toMap(GroupParticipant::getId, Function.identity()));
@@ -174,6 +178,15 @@ public class ExpenseService {
 
         expense.update(request.title(), request.amount(), request.category(), request.memo(), request.spentAt());
 
+        // scheduleId가 있으면 그 일정으로 연결/변경, 없으면 연결 해제
+        if (request.scheduleId() != null) {
+            Schedule schedule = scheduleRepository.findByIdAndGroupId(request.scheduleId(), groupId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "일정을 찾을 수 없습니다."));
+            expense.assignSchedule(schedule);
+        } else {
+            expense.clearSchedule();
+        }
+
         // 기존 부담 내역은 지우고 새로 계산해서 다시 저장 (금액이 바뀌었을 수 있으니 재계산 필수)
         expenseShareRepository.deleteAllByExpenseId(expenseId);
         GroupParticipant payer = expense.getPayer();
@@ -190,8 +203,8 @@ public class ExpenseService {
     public void deleteExpense(Long groupId, Long expenseId, Long requesterId) {
         Expense expense = findExpenseOrThrow(groupId, expenseId);
 
-        GroupParticipant requester = groupParticipantRepository.findByIdAndGroupId(requesterId, groupId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 참여자가 아닙니다."));
+        GroupParticipant requester = groupParticipantRepository.findByIdAndGroupIdAndIsActiveTrue(requesterId, groupId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 활성 참여자가 아닙니다."));
 
         boolean isPayer = expense.isPayer(requesterId);
         boolean isOwner = requester.getRole() == GroupParticipant.Role.OWNER;

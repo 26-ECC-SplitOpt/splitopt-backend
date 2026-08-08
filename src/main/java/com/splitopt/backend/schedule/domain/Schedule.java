@@ -61,7 +61,13 @@ public class Schedule extends BaseEntity {
 
     public void update(String title, String location, LocalDateTime startAt,
                        LocalDateTime endAt, String memo) {
-        if (endAt != null && startAt != null && endAt.isBefore(startAt)) {
+        if (title == null || title.isBlank()) {
+            throw new IllegalArgumentException("title must not be blank");
+        }
+        if (startAt == null) {
+            throw new IllegalArgumentException("startAt must not be null");
+        }
+        if (endAt != null && endAt.isBefore(startAt)) {
             throw new IllegalArgumentException("endAt must be after startAt");
         }
         this.title = title;

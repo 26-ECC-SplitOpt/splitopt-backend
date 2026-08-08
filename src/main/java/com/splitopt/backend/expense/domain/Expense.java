@@ -85,4 +85,9 @@ public class Expense extends BaseEntity {
     public void clearSchedule() {
         this.schedule = null;
     }
+
+    /** 일정을 새로 연결하거나 다른 일정으로 변경. update(20)에서 scheduleId가 있을 때 사용. */
+    public void assignSchedule(Schedule schedule) {
+        this.schedule = schedule;
+    }
 }
