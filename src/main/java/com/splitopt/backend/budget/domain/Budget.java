@@ -48,7 +48,13 @@ public class Budget extends BaseEntity {
         this.amount = amount;
     }
 
-    private static void validateAmount(BigDecimal amount) {
+    /**
+     * 예산 금액 검증 (0 이상 · DECIMAL(12,2) 범위).
+     *
+     * <p>엔티티를 거치지 않는 원자적 upsert 경로({@code BudgetRepository#upsertAmount})에서도
+     * 같은 규칙을 적용하기 위해 공개한다. 검증 규칙의 단일 출처는 이 메서드다.
+     */
+    public static void validateAmount(BigDecimal amount) {
         if (amount == null || amount.signum() < 0) {
             throw new IllegalArgumentException("amount must be zero or positive");
         }

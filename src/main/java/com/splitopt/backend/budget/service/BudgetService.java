@@ -5,8 +5,6 @@ import com.splitopt.backend.budget.dto.BudgetResponse;
 import com.splitopt.backend.budget.repository.BudgetRepository;
 import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
-import com.splitopt.backend.group.domain.Group;
-import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,27 +16,31 @@ import java.math.BigDecimal;
  *
  * <p>예산 현황의 사용액·잔여(39)와 초과 예측(40)은 지출({@code expenses}, 이채빈 파트) 집계가
  * 필요하므로 지출 파트 완성 후 연결한다. 현재는 예산 설정/조회(금액)까지 구현.
+ *
+ * <p>설정(38)은 조회 후 저장이 아니라 DB 원자적 upsert로 처리한다 — 근거는
+ * {@link #upsert(Long, java.math.BigDecimal)} 참고.
  */
 @Service
 @RequiredArgsConstructor
 public class BudgetService {
 
     private final BudgetRepository budgetRepository;
-    private final EntityManager em;
 
-    /** 예산 설정/수정 (API 38). 모임당 1개 — 있으면 수정, 없으면 생성. */
+    /**
+     * 예산 설정/수정 (API 38). 모임당 1개 — 있으면 수정, 없으면 생성.
+     *
+     * <p>삽입·수정을 {@code group_id} UNIQUE 위의 단일 upsert 문장으로 처리해,
+     * 같은 모임에 대한 동시 최초 설정 요청에서도 한쪽이 UNIQUE 위반으로 실패하지 않는다.
+     * 엔티티 생성을 거치지 않으므로 금액 검증은 {@link Budget#validateAmount}로 먼저 수행한다.
+     */
     @Transactional
     public BudgetResponse upsert(Long groupId, BigDecimal amount) {
+        Budget.validateAmount(amount);
+        budgetRepository.upsertAmount(groupId, amount);
+        // upsert 직후에는 반드시 행이 존재한다. 없다면 UNIQUE 제약/스키마 전제가 깨진 상황.
         Budget budget = budgetRepository.findByGroup_Id(groupId)
-                .map(existing -> {
-                    existing.updateAmount(amount);
-                    return existing;
-                })
-                .orElseGet(() -> budgetRepository.save(
-                        Budget.builder()
-                                .group(em.getReference(Group.class, groupId))
-                                .amount(amount)
-                                .build()));
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.INTERNAL_SERVER_ERROR, "예산 저장에 실패했습니다."));
         return BudgetResponse.from(budget);
     }
 
