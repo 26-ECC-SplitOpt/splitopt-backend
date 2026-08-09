@@ -7,6 +7,7 @@ import com.splitopt.backend.global.security.JwtAuthenticationFilter;
 import com.splitopt.backend.global.security.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
@@ -40,6 +41,16 @@ public class SecurityConfig {
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
         return new JwtAuthenticationFilter(jwtTokenProvider);
+    }
+
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationFilter> jwtAuthenticationFilterRegistration(
+            JwtAuthenticationFilter filter
+    ) {
+        FilterRegistrationBean<JwtAuthenticationFilter> registration =
+                new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false); // 서블릿 컨테이너 자동 등록 비활성 → SecurityFilterChain만 사용
+        return registration;
     }
 
     @Bean
