@@ -16,6 +16,16 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
     boolean existsByGroup_Id(Long groupId);
 
     /**
+     * 모임의 지출 합계 (API 39 사용액).
+     *
+     * <p>지출 엔티티를 예산 리포지토리에서 조회하는 형태다. 합계만 필요한데 지출 전 건을 메모리로
+     * 가져와 더하지 않기 위해서이고, 지출 파트에 집계 메서드가 생기면 그쪽으로 옮긴다.
+     * 지출이 하나도 없는 모임에서 null이 아니라 0이 나오도록 {@code coalesce}로 감싼다.
+     */
+    @Query("select coalesce(sum(e.amount), 0) from Expense e where e.group.id = :groupId")
+    BigDecimal sumExpenseAmountByGroupId(@Param("groupId") Long groupId);
+
+    /**
      * 예산 원자적 upsert (API 38).
      *
      * <p>{@code uk_budgets_group}(group_id UNIQUE) 위에서 삽입·수정을 <b>한 문장</b>으로 처리한다.

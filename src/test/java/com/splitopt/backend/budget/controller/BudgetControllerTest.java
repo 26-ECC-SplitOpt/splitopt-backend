@@ -40,17 +40,25 @@ class BudgetControllerTest {
     @MockitoBean
     private BudgetService budgetService;
 
+    /** 예산 20만원에 사용액 5만원인 상태. */
+    private BudgetResponse sampleBudget() {
+        return new BudgetResponse(1L, new BigDecimal("200000"), new BigDecimal("50000"),
+                new BigDecimal("150000"), false, new BigDecimal("25.0"));
+    }
+
     @Test
-    @DisplayName("예산 설정(38) → 200")
+    @DisplayName("예산 설정(38) → 200, 설정 직후에도 현황이 함께 온다")
     void upsert_ok() throws Exception {
-        given(budgetService.upsert(eq(1L), any())).willReturn(new BudgetResponse(1L, new BigDecimal("200000")));
+        given(budgetService.upsert(eq(1L), any())).willReturn(sampleBudget());
 
         mockMvc.perform(put("/api/groups/1/budget")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":200000}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.amount").value(200000));
+                .andExpect(jsonPath("$.data.amount").value(200000))
+                .andExpect(jsonPath("$.data.spent").value(50000))
+                .andExpect(jsonPath("$.data.remaining").value(150000));
     }
 
     @Test
@@ -78,15 +86,33 @@ class BudgetControllerTest {
     }
 
     @Test
-    @DisplayName("예산 현황 조회(39) → 200")
+    @DisplayName("예산 현황 조회(39) → 200, 금액·사용액·잔여·초과 여부·사용률")
     void getBudget_ok() throws Exception {
-        given(budgetService.getBudget(1L)).willReturn(new BudgetResponse(1L, new BigDecimal("200000")));
+        given(budgetService.getBudget(1L)).willReturn(sampleBudget());
 
         mockMvc.perform(get("/api/groups/1/budget"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.groupId").value(1))
-                .andExpect(jsonPath("$.data.amount").value(200000));
+                .andExpect(jsonPath("$.data.amount").value(200000))
+                .andExpect(jsonPath("$.data.spent").value(50000))
+                .andExpect(jsonPath("$.data.remaining").value(150000))
+                .andExpect(jsonPath("$.data.exceeded").value(false))
+                .andExpect(jsonPath("$.data.usageRate").value(25.0));
+    }
+
+    @Test
+    @DisplayName("예산 현황 조회(39) 초과 상태 → 잔여는 음수, exceeded true")
+    void getBudget_exceeded() throws Exception {
+        given(budgetService.getBudget(1L)).willReturn(new BudgetResponse(
+                1L, new BigDecimal("200000"), new BigDecimal("250000"),
+                new BigDecimal("-50000"), true, new BigDecimal("125.0")));
+
+        mockMvc.perform(get("/api/groups/1/budget"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.remaining").value(-50000))
+                .andExpect(jsonPath("$.data.exceeded").value(true))
+                .andExpect(jsonPath("$.data.usageRate").value(125.0));
     }
 
     @Test
