@@ -69,7 +69,7 @@ class BudgetControllerTest {
                         .content("{\"amount\":-1}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("amount: 예산 금액은 0 이상이어야 합니다."))
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 
@@ -81,7 +81,7 @@ class BudgetControllerTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("amount: 예산 금액은 필수입니다."))
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 

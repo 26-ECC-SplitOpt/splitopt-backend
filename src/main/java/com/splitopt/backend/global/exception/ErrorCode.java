@@ -12,21 +12,24 @@ import org.springframework.http.HttpStatus;
 public enum ErrorCode {
 
     // 공통
-    INVALID_INPUT(HttpStatus.BAD_REQUEST, "잘못된 입력입니다."),
-    METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "허용되지 않은 요청입니다."),
-    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 발생했습니다."),
+    INVALID_INPUT(HttpStatus.BAD_REQUEST, "INVALID_INPUT", null, "입력값을 확인해주세요."),
+    METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "METHOD_NOT_ALLOWED", null, "허용되지 않은 요청입니다."),
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR", null, "서버 오류가 발생했습니다."),
 
     // 인증 / 권한
-    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다."),
-    ACCESS_DENIED(HttpStatus.FORBIDDEN, "접근 권한이 없습니다."),
-    DUPLICATE_EMAIL(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
+    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", null, "인증이 필요합니다."),
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "ACCESS_DENIED", null, "접근 권한이 없습니다."),
+    DUPLICATE_EMAIL(HttpStatus.CONFLICT, "EMAIL_DUPLICATED", "email", "이미 사용 중인 이메일입니다."),
+    LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "LOGIN_FAILED", null, "이메일 또는 비밀번호가 올바르지 않습니다."),
 
     // 리소스
-    ENTITY_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 리소스를 찾을 수 없습니다."),
+    ENTITY_NOT_FOUND(HttpStatus.NOT_FOUND, "ENTITY_NOT_FOUND", null, "요청한 리소스를 찾을 수 없습니다."),
 
     // 상태 충돌 (현재 상태에서 허용되지 않는 전이 등)
-    INVALID_STATE(HttpStatus.CONFLICT, "현재 상태에서 처리할 수 없는 요청입니다.");
+    INVALID_STATE(HttpStatus.CONFLICT, "INVALID_STATE", null, "현재 상태에서 처리할 수 없는 요청입니다.");
 
     private final HttpStatus status;
+    private final String code;
+    private final String field;
     private final String message;
 }

@@ -36,4 +36,8 @@ public class User extends BaseEntity {
         this.name = name;
         this.profileImageUrl = profileImageUrl;
     }
+
+    public void updateName(String name) {
+        this.name = name;
+    }
 }

@@ -1,17 +1,15 @@
 package com.splitopt.backend.user.controller;
 
 import com.splitopt.backend.global.response.ApiResponse;
-import com.splitopt.backend.user.dto.SignupRequest;
-import com.splitopt.backend.user.dto.SignupResponse;
+import com.splitopt.backend.global.security.UserPrincipal;
+import com.splitopt.backend.user.dto.*;
 import com.splitopt.backend.user.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * 인증 API.
@@ -38,4 +36,38 @@ public class AuthController {
                 .status(HttpStatus.CREATED) // 201
                 .body(ApiResponse.success(data));
     }
+
+    @PostMapping("/login")
+    public ResponseEntity<ApiResponse<LoginResponse>> login(
+            @Valid @RequestBody LoginRequest request
+    ) {
+        LoginResponse data = authService.login(request);
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    @GetMapping("/me")
+    public ResponseEntity<ApiResponse<MeResponse>> me(
+            @AuthenticationPrincipal UserPrincipal principal
+    ) {
+        MeResponse data = authService.getMe(principal.getUserId());
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<ApiResponse<MeResponse>> updateMe(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @Valid @RequestBody UpdateMeRequest request
+    ) {
+        MeResponse data = authService.updateMe(principal.getUserId(), request);
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<MessageResponse>> logout(
+            @Valid @RequestBody LogoutRequest request
+    ) {
+        MessageResponse data = authService.logout(request);
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
 }
