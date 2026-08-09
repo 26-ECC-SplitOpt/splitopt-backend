@@ -65,7 +65,9 @@ class BudgetUpsertAtomicityTest {
     @BeforeEach
     void setUp() {
         tx = new TransactionTemplate(txManager);
-        tx.executeWithoutResult(status -> {
+        // id는 커밋이 끝난 뒤에 필드에 넣는다. 콜백 안에서 대입하면 커밋 단계에서 실패했을 때
+        // 행은 롤백됐는데 id만 남아, tearDown이 없는 행을 지우려다 2차 예외로 원래 실패 원인을 가린다.
+        Fixture fixture = tx.execute(status -> {
             // 이메일 UNIQUE 충돌로 테스트가 서로 간섭하지 않도록 픽스처마다 다른 값을 쓴다.
             User owner = User.builder()
                     .email("atomicity-" + UUID.randomUUID() + "@x.com")
@@ -74,16 +76,21 @@ class BudgetUpsertAtomicityTest {
             Group group = Group.builder().name("워크샵").owner(owner).build();
             em.persist(group);
             em.flush();
-            userId = owner.getId();
-            groupId = group.getId();
+            return new Fixture(owner.getId(), group.getId());
         });
+        userId = fixture.userId();
+        groupId = fixture.groupId();
+    }
+
+    /** 커밋 성공 후에만 필드로 옮기기 위한 setUp 반환값. */
+    private record Fixture(Long userId, Long groupId) {
     }
 
     @AfterEach
     void tearDown() {
         // 테스트 트랜잭션 롤백이 없으므로 커밋된 픽스처를 직접 지운다.
         // (네이티브 SQL 대신 JPA 삭제 — `groups`는 예약어라 DB별 인용 방식이 달라진다.)
-        // setUp이 커밋 전에 실패하면 id가 null이므로 건너뛴다 — 정리 중 2차 예외가
+        // setUp이 커밋에 실패하면 id가 null이므로 건너뛴다 — 정리 중 2차 예외가
         // 원래 실패 원인을 가리지 않게 한다.
         tx.executeWithoutResult(status -> {
             if (groupId != null) {
