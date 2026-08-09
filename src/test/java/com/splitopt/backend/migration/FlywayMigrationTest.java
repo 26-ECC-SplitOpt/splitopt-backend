@@ -35,7 +35,7 @@ class FlywayMigrationTest {
             .withDatabaseName("splitopt");
 
     @Test
-    @DisplayName("V1이 MySQL 8에 오류 없이 적용되고, 8개 도메인 테이블이 생성된다")
+    @DisplayName("V1·V2가 MySQL 8에 오류 없이 적용되고, 8개 도메인 테이블이 생성된다")
     void v1AppliesCleanlyOnMySql8() throws Exception {
         Flyway flyway = Flyway.configure()
                 .dataSource(MYSQL.getJdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())
@@ -43,7 +43,7 @@ class FlywayMigrationTest {
                 .load();
 
         MigrateResult result = flyway.migrate();
-        assertEquals(1, result.migrationsExecuted, "V1 마이그레이션 1개가 적용되어야 한다");
+        assertEquals(2, result.migrationsExecuted, "V1·V2 마이그레이션 2개가 적용되어야 한다");
 
         // 체크섬·버전 정합성 검증
         assertDoesNotThrow(flyway::validate);
@@ -85,8 +85,10 @@ class FlywayMigrationTest {
             // 제약이 개수만이 아니라 실제로 '동작'하는지: 잘못된 INSERT가 거부되어야 한다
             try (Statement seed = conn.createStatement()) {
                 seed.executeUpdate("INSERT INTO users(email, password, name) VALUES('t@t.com','p','T')");
+                seed.executeUpdate("INSERT INTO users(email, password, name) VALUES('u@u.com','p','U')");
                 seed.executeUpdate("INSERT INTO `groups`(name, owner_id) VALUES('g', 1)");
                 seed.executeUpdate("INSERT INTO group_participants(group_id, user_id, role) VALUES(1, 1, 'OWNER')");
+                seed.executeUpdate("INSERT INTO group_participants(group_id, user_id, role) VALUES(1, 2, 'MEMBER')");
             }
             // amount <= 0 은 CHECK(ck_exp_amount)로 거부되어야 함
             assertThrows(SQLException.class, () -> {
@@ -95,6 +97,24 @@ class FlywayMigrationTest {
                             " VALUES(1, 1, 'x', -1, 'c', NOW())");
                 }
             }, "음수 금액 지출은 CHECK 제약으로 거부되어야 한다");
+
+            // V2: 정산 상태 전이(SENT) — sent_at 컬럼 존재 + status CHECK가 'SENT'를 허용해야 함
+            try (ResultSet rs = conn.getMetaData().getColumns(schema, null, "settlements", "sent_at")) {
+                assertTrue(rs.next(), "V2로 settlements.sent_at 컬럼이 추가되어야 한다");
+            }
+            assertDoesNotThrow(() -> {
+                try (Statement ok = conn.createStatement()) {
+                    ok.executeUpdate("INSERT INTO settlements(group_id, from_participant_id, to_participant_id," +
+                            " amount, status, sent_at) VALUES(1, 1, 2, 100, 'SENT', NOW(6))");
+                }
+            }, "V2 이후 'SENT' 상태 정산은 허용되어야 한다");
+            // 정의되지 않은 상태값은 갱신된 CHECK(ck_stl_status)로 거부되어야 함
+            assertThrows(SQLException.class, () -> {
+                try (Statement bad = conn.createStatement()) {
+                    bad.executeUpdate("INSERT INTO settlements(group_id, from_participant_id, to_participant_id," +
+                            " amount, status) VALUES(1, 2, 1, 100, 'FOO')");
+                }
+            }, "정의되지 않은 정산 상태는 CHECK 제약으로 거부되어야 한다");
         }
     }
 }
