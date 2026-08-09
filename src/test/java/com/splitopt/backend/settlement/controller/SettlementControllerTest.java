@@ -244,6 +244,6 @@ class SettlementControllerTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.message").value("action: action은 필수입니다."));
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."));
     }
 }

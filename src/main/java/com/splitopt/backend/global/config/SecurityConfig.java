@@ -4,6 +4,7 @@ import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.global.response.ApiResponse;
 import com.splitopt.backend.global.response.ErrorField;
 import com.splitopt.backend.global.security.JwtAuthenticationFilter;
+import com.splitopt.backend.global.security.JwtTokenProvider;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -34,8 +35,12 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ObjectMapper objectMapper;
+
+    @Bean
+    public JwtAuthenticationFilter jwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
+        return new JwtAuthenticationFilter(jwtTokenProvider);
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -49,7 +54,7 @@ public class SecurityConfig {
      * CSRF는 브라우저 폼 로그인이 아닌 JSON API라 비활성화한다.
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
