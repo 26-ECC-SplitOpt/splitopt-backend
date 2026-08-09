@@ -18,4 +18,10 @@ public interface GroupParticipantRepository extends JpaRepository<GroupParticipa
     Optional<GroupParticipant> findByIdAndGroupId(Long participantId, Long groupId);
 
     Optional<GroupParticipant> findByIdAndGroupIdAndIsActiveTrue(Long participantId, Long groupId);
+
+    long countByGroupIdAndIsActiveTrue(Long groupId);
+
+    Optional<GroupParticipant> findByGroupIdAndUserId(Long groupId, Long userId);
+
+    List<GroupParticipant> findAllByUserIdAndIsActiveTrue(Long userId);
 }
