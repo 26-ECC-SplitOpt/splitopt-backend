@@ -1,5 +1,7 @@
 package com.splitopt.backend.budget.controller;
 
+import com.splitopt.backend.budget.dto.BudgetForecastResponse;
+import com.splitopt.backend.budget.dto.BudgetForecastResponse.Basis;
 import com.splitopt.backend.budget.dto.BudgetResponse;
 import com.splitopt.backend.budget.service.BudgetService;
 import com.splitopt.backend.global.exception.BusinessException;
@@ -16,6 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -26,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 예산 컨트롤러 웹 계층 테스트 (API 38·39).
+ * 예산 컨트롤러 웹 계층 테스트 (API 38·39·40).
  * HTTP 상태 매핑(200/400/404)·@Valid·JSON 직렬화를 검증한다.
  */
 @WebMvcTest(controllers = BudgetController.class)
@@ -113,6 +116,55 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.data.remaining").value(-50000))
                 .andExpect(jsonPath("$.data.exceeded").value(true))
                 .andExpect(jsonPath("$.data.usageRate").value(125.0));
+    }
+
+    @Test
+    @DisplayName("초과 예측(40) → 200, 기간·경과율·예상 총액·초과 예상")
+    void getForecast_ok() throws Exception {
+        LocalDateTime start = LocalDateTime.of(2026, 8, 1, 0, 0);
+        LocalDateTime end = LocalDateTime.of(2026, 8, 5, 0, 0);
+        given(budgetService.getForecast(1L)).willReturn(new BudgetForecastResponse(
+                1L, new BigDecimal("150000"), new BigDecimal("100000"), Basis.SCHEDULE,
+                start, end, new BigDecimal("50.0"), new BigDecimal("200000"),
+                new BigDecimal("50000"), true));
+
+        mockMvc.perform(get("/api/groups/1/budget/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.basis").value("SCHEDULE"))
+                .andExpect(jsonPath("$.data.elapsedRate").value(50.0))
+                .andExpect(jsonPath("$.data.projectedTotal").value(200000))
+                .andExpect(jsonPath("$.data.projectedOverspend").value(50000))
+                .andExpect(jsonPath("$.data.willExceed").value(true))
+                .andExpect(jsonPath("$.data.periodStart").exists());
+    }
+
+    @Test
+    @DisplayName("초과 예측(40) 근거 없음 → 200, basis=NONE이고 예측 필드는 비어 있다")
+    void getForecast_noBasis() throws Exception {
+        given(budgetService.getForecast(1L)).willReturn(
+                BudgetForecastResponse.notForecastable(1L, new BigDecimal("150000"), new BigDecimal("100000")));
+
+        mockMvc.perform(get("/api/groups/1/budget/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.basis").value("NONE"))
+                .andExpect(jsonPath("$.data.amount").value(150000))
+                .andExpect(jsonPath("$.data.spent").value(100000))
+                .andExpect(jsonPath("$.data.projectedTotal").doesNotExist())
+                .andExpect(jsonPath("$.data.willExceed").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("초과 예측(40) 예산 미설정 → 404")
+    void getForecast_notFound() throws Exception {
+        given(budgetService.getForecast(1L))
+                .willThrow(new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "설정된 예산이 없습니다."));
+
+        mockMvc.perform(get("/api/groups/1/budget/forecast"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("설정된 예산이 없습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
