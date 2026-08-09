@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,6 +29,12 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
     Optional<Settlement> findByIdAndGroup_IdForUpdate(@Param("id") Long id, @Param("groupId") Long groupId);
 
     List<Settlement> findByGroup_IdAndStatus(Long groupId, SettlementStatus status);
+
+    /**
+     * 여러 상태를 한 번에 조회. 순잔액 계산(API 23·24)에서 이미 오간 돈(SENT·COMPLETED)을
+     * 지출 원장 잔액에서 상계할 때 사용한다.
+     */
+    List<Settlement> findByGroup_IdAndStatusIn(Long groupId, Collection<SettlementStatus> statuses);
 
     long countByGroup_Id(Long groupId);
 

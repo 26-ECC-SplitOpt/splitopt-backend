@@ -11,6 +11,9 @@ public interface GroupParticipantRepository extends JpaRepository<GroupParticipa
     // 모임에 속한 "활성" 참여자만 조회 (탈퇴자는 제외)
     List<GroupParticipant> findAllByGroupIdAndIsActiveTrue(Long groupId);
 
+    // 탈퇴자 포함 전체 조회 — 잔액(23)·정산(24)은 탈퇴 전 지출 이력이 남은 참여자도 다뤄야 한다
+    List<GroupParticipant> findAllByGroupId(Long groupId);
+
     // 특정 참여자가 진짜 이 모임 소속이 맞는지 확인할 때 사용
     Optional<GroupParticipant> findByIdAndGroupId(Long participantId, Long groupId);
 

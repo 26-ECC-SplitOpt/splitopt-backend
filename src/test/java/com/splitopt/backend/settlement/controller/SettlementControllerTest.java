@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,6 +48,42 @@ class SettlementControllerTest {
     private SettlementResponse sampleSettlement(String status) {
         return new SettlementResponse(5L, 10L, "주영", 8L, "수빈",
                 new BigDecimal("18000"), status, null, null);
+    }
+
+    @Test
+    @DisplayName("최적화 실행(24) → 200, 생성된 송금 목록과 안내 메시지")
+    void optimize_ok() throws Exception {
+        given(settlementService.optimize(1L)).willReturn(List.of(sampleSettlement("PENDING")));
+
+        mockMvc.perform(post("/api/groups/1/settlements/optimize"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("정산 최적화를 실행했습니다."))
+                .andExpect(jsonPath("$.data[0].fromName").value("주영"))
+                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+    }
+
+    @Test
+    @DisplayName("최적화 실행(24) 정산할 것이 없으면 → 200, 빈 목록")
+    void optimize_empty() throws Exception {
+        given(settlementService.optimize(1L)).willReturn(List.of());
+
+        mockMvc.perform(post("/api/groups/1/settlements/optimize"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    @Test
+    @DisplayName("최적화 실행(24) 없는 모임 → 404(ENTITY_NOT_FOUND)")
+    void optimize_notFound() throws Exception {
+        given(settlementService.optimize(404L))
+                .willThrow(new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다."));
+
+        mockMvc.perform(post("/api/groups/404/settlements/optimize"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     @Test
