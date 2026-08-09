@@ -20,6 +20,9 @@ import com.splitopt.backend.user.domain.User;
 import com.splitopt.backend.user.dto.MessageResponse;
 import com.splitopt.backend.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +43,7 @@ public class GroupService {
     private final SettlementRepository settlementRepository;
     private final BudgetRepository budgetRepository;
     private final ScheduleRepository scheduleRepository;
+    private static final int MAX_PAGE_SIZE = 100;
 
     //모임 생성
     @Transactional
@@ -80,26 +84,29 @@ public class GroupService {
     //내 모임 목록
     @Transactional(readOnly = true)
     public GroupListResponse getMyGroups(Long userId, int page, int size) {
-        List<GroupParticipant> memberships =
-                groupParticipantRepository.findAllByUserIdAndIsActiveTrue(userId);
-
-        List<GroupListItemResponse> all = memberships.stream()
+        if (page < 0) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT, "page는 0 이상이어야 합니다.");
+        }
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BusinessException(ErrorCode.INVALID_INPUT,
+                    "size는 1 이상 " + MAX_PAGE_SIZE + " 이하여야 합니다.");
+        }
+        PageRequest pageable = PageRequest.of(
+                page, size, Sort.by(Sort.Direction.DESC, "group.createdAt"));
+        Page<GroupParticipant> membershipPage =
+                groupParticipantRepository.findAllByUserIdAndIsActiveTrue(userId, pageable);
+        List<GroupListItemResponse> content = membershipPage.getContent().stream()
                 .map(m -> toListItem(m.getGroup(), userId))
                 .toList();
-
-        int from = Math.min(page * size, all.size());
-        int to = Math.min(from + size, all.size());
-        List<GroupListItemResponse> content = all.subList(from, to);
-        int totalPages = size == 0 ? 0 : (int) Math.ceil((double) all.size() / size);
-
         return GroupListResponse.builder()
                 .groups(content)
                 .page(page)
                 .size(size)
-                .totalElements(all.size())
-                .totalPages(totalPages)
+                .totalElements(membershipPage.getTotalElements())
+                .totalPages(membershipPage.getTotalPages())
                 .build();
     }
+
 
     private GroupListItemResponse toListItem(Group group, Long userId) {
         Long groupId = group.getId();
