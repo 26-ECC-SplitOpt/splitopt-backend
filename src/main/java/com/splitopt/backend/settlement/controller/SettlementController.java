@@ -16,9 +16,9 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * 정산 조회·상태 관리 API.
- * <p>구현: 25(전체 조회) · 26(내 정산) · 28(미정산 조회) · 29(요약) · 27(상태 전이 SEND/CONFIRM/CANCEL).
- * <p>미구현(의존성 대기): 24 최적화 실행(잔액=지출 파트 필요).
+ * 정산 실행·조회·상태 관리 API.
+ * <p>구현: 24(최적화 실행) · 25(전체 조회) · 26(내 정산) · 28(미정산 조회) · 29(요약) ·
+ * 27(상태 전이 SEND/CONFIRM/CANCEL). 개인별 잔액(23)은 {@link BalanceController}.
  */
 @RestController
 @RequestMapping("/api/groups/{groupId}/settlements")
@@ -26,6 +26,17 @@ import java.util.List;
 public class SettlementController {
 
     private final SettlementService settlementService;
+
+    /**
+     * 정산 최적화 실행(24).
+     *
+     * <p>지출 원장에서 순잔액(이미 오간 SENT·COMPLETED 정산을 상계한 잔액)을 산출해 송금 목록을
+     * 다시 만든다. 재실행 시 기존 PENDING은 대체되고 SENT·COMPLETED는 보존된다.
+     */
+    @PostMapping("/optimize")
+    public ApiResponse<List<SettlementResponse>> optimize(@PathVariable Long groupId) {
+        return ApiResponse.success(settlementService.optimize(groupId), "정산 최적화를 실행했습니다.");
+    }
 
     /** 정산 결과 전체 조회(25) / 상태별 조회(28, ?status=pending|completed). */
     @GetMapping

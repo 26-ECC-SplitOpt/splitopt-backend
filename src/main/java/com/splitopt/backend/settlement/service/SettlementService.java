@@ -4,6 +4,7 @@ import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.group.domain.Group;
 import com.splitopt.backend.group.domain.GroupParticipant;
+import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.settlement.domain.Settlement;
 import com.splitopt.backend.settlement.domain.SettlementStatus;
 import com.splitopt.backend.settlement.domain.ParticipantBalance;
@@ -20,21 +21,36 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 정산 계산/최적화·상태 관리 서비스 (API 24·25·26·27·28·29).
  *
- * <p>주의: 개인별 잔액(API 23)은 지출·부담({@code expenses}/{@code expense_shares}, 이채빈 파트)
- * 집계가 필요하다. 이 서비스는 잔액을 <b>입력값으로 받아</b> 최적화·저장하며, 잔액 산출 자체는
- * 지출 파트 완성 후 연결한다. (그래서 {@link #optimizeAndSave}가 balances를 파라미터로 받음)
+ * <p>잔액 산출은 {@link BalanceService}가 담당한다. 이 서비스는 순잔액을 받아 최적화·저장하며,
+ * 진입점 {@link #optimize(Long)}가 잔액 조회부터 저장까지 하나의 트랜잭션으로 묶는다.
  */
 @Service
 @RequiredArgsConstructor
 public class SettlementService {
 
     private final SettlementRepository settlementRepository;
+    private final GroupParticipantRepository groupParticipantRepository;
+    private final BalanceService balanceService;
     private final EntityManager em;
     private final SettlementOptimizer optimizer = new SettlementOptimizer();
+
+    /**
+     * 정산 최적화 실행 (API 24). 지출 원장에서 순잔액을 산출해 최적화·저장한다.
+     *
+     * <p>잔액 조회와 저장을 같은 트랜잭션에서 수행한다 — 그 사이 지출이 추가되면 총합이 0이
+     * 아닌 잔액으로 최적화하게 되어 실패하거나 어긋난 정산이 만들어진다.
+     */
+    @Transactional
+    public List<SettlementResponse> optimize(Long groupId) {
+        return optimizeAndSave(groupId, balanceService.getNetBalances(groupId));
+    }
 
     /**
      * 정산 최적화 실행 및 저장 (API 24).
@@ -44,10 +60,13 @@ public class SettlementService {
      * @param groupId  모임 id
      * @param balances 참여자별 잔액 (총합 0). 재실행 시에는 반드시 이미 정산된(SENT·COMPLETED) 금액을
      *                 차감한 <b>순잔액</b>이어야 한다 — 그러지 않으면 이미 보낸 돈을 다시 만들어 이중청구가 된다.
+     *                 ({@link BalanceService#getNetBalances}가 이 형태로 반환한다.)
      * @return 새로 생성된 정산 목록
      */
     @Transactional
     public List<SettlementResponse> optimizeAndSave(Long groupId, List<ParticipantBalance> balances) {
+        Map<Long, GroupParticipant> participants = loadGroupParticipants(groupId, balances);
+
         settlementRepository.deleteByGroup_IdAndStatus(groupId, SettlementStatus.PENDING);
 
         List<SettlementTransfer> transfers = optimizer.optimize(balances);
@@ -56,8 +75,8 @@ public class SettlementService {
         List<Settlement> settlements = transfers.stream()
                 .map(t -> Settlement.builder()
                         .group(groupRef)
-                        .fromParticipant(em.getReference(GroupParticipant.class, t.fromParticipantId()))
-                        .toParticipant(em.getReference(GroupParticipant.class, t.toParticipantId()))
+                        .fromParticipant(participants.get(t.fromParticipantId()))
+                        .toParticipant(participants.get(t.toParticipantId()))
                         .amount(t.amount())
                         .build())
                 .toList();
@@ -65,6 +84,26 @@ public class SettlementService {
         return settlementRepository.saveAll(settlements).stream()
                 .map(SettlementResponse::from)
                 .toList();
+    }
+
+    /**
+     * 잔액에 등장한 참여자가 모두 이 모임 소속인지 검증하고 엔티티 맵으로 돌려준다.
+     *
+     * <p>참조만 걸어 저장하면(예: {@code em.getReference}) 다른 모임의 참여자 id가 섞여도 그대로
+     * 저장되어 모임과 참여자가 어긋난 정산이 생긴다. 저장 전에 소속을 확인한다.
+     * 탈퇴자도 정산 대상이므로 활성 여부는 보지 않는다.
+     */
+    private Map<Long, GroupParticipant> loadGroupParticipants(Long groupId, List<ParticipantBalance> balances) {
+        Map<Long, GroupParticipant> participants = groupParticipantRepository.findAllByGroupId(groupId).stream()
+                .collect(Collectors.toMap(GroupParticipant::getId, Function.identity()));
+
+        for (ParticipantBalance balance : balances) {
+            if (!participants.containsKey(balance.participantId())) {
+                throw new BusinessException(ErrorCode.INVALID_INPUT,
+                        "모임에 속하지 않은 참여자입니다: " + balance.participantId());
+            }
+        }
+        return participants;
     }
 
     /** 정산 결과 전체 조회 (API 25). */
