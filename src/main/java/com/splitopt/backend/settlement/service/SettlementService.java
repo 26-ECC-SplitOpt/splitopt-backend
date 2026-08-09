@@ -16,6 +16,7 @@ import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.optimizer.SettlementOptimizer;
 import com.splitopt.backend.settlement.repository.SettlementRepository;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,9 +47,14 @@ public class SettlementService {
      *
      * <p>잔액 조회와 저장을 같은 트랜잭션에서 수행한다 — 그 사이 지출이 추가되면 총합이 0이
      * 아닌 잔액으로 최적화하게 되어 실패하거나 어긋난 정산이 만들어진다.
+     *
+     * <p>잔액을 <b>읽기 전에</b> 모임 행을 잠근다. 잔액 조회 → PENDING 삭제 → 저장은
+     * read-modify-write라, 잠그지 않으면 동시 요청이 서로의 미커밋 PENDING을 못 보고 각자
+     * 새로 저장해 같은 청구가 두 벌 남는다.
      */
     @Transactional
     public List<SettlementResponse> optimize(Long groupId) {
+        lockGroupForUpdate(groupId);
         return optimizeAndSave(groupId, balanceService.getNetBalances(groupId));
     }
 
@@ -65,16 +71,18 @@ public class SettlementService {
      */
     @Transactional
     public List<SettlementResponse> optimizeAndSave(Long groupId, List<ParticipantBalance> balances) {
+        // 이 메서드도 삭제 후 저장이라 단독 호출 경로에서 같은 경합이 생긴다.
+        // optimize()가 이미 잠갔다면 같은 트랜잭션이므로 여기서는 아무 일도 일어나지 않는다.
+        Group group = lockGroupForUpdate(groupId);
         Map<Long, GroupParticipant> participants = loadGroupParticipants(groupId, balances);
 
         settlementRepository.deleteByGroup_IdAndStatus(groupId, SettlementStatus.PENDING);
 
         List<SettlementTransfer> transfers = optimizer.optimize(balances);
-        Group groupRef = em.getReference(Group.class, groupId);
 
         List<Settlement> settlements = transfers.stream()
                 .map(t -> Settlement.builder()
-                        .group(groupRef)
+                        .group(group)
                         .fromParticipant(participants.get(t.fromParticipantId()))
                         .toParticipant(participants.get(t.toParticipantId()))
                         .amount(t.amount())
@@ -84,6 +92,21 @@ public class SettlementService {
         return settlementRepository.saveAll(settlements).stream()
                 .map(SettlementResponse::from)
                 .toList();
+    }
+
+    /**
+     * 최적화 대상 모임 행을 배타 잠금으로 읽어 같은 모임의 최적화를 직렬화한다.
+     *
+     * <p>정산 테이블에는 (모임, 보내는 사람, 받는 사람) 유니크 제약이 없어 중복 저장을 DB가
+     * 막아주지 못한다. 모임 행을 잠그는 쪽이 정산 스키마를 바꾸는 것보다 가볍고, 재실행 자체가
+     * 모임 단위 작업이라 잠금 범위도 자연스럽다.
+     */
+    private Group lockGroupForUpdate(Long groupId) {
+        Group group = em.find(Group.class, groupId, LockModeType.PESSIMISTIC_WRITE);
+        if (group == null) {
+            throw new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다.");
+        }
+        return group;
     }
 
     /**
