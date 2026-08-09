@@ -5,6 +5,7 @@ import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.group.domain.Group;
 import com.splitopt.backend.group.domain.GroupParticipant;
 import com.splitopt.backend.group.repository.GroupParticipantRepository;
+import com.splitopt.backend.group.repository.GroupRepository;
 import com.splitopt.backend.settlement.domain.Settlement;
 import com.splitopt.backend.settlement.domain.SettlementStatus;
 import com.splitopt.backend.settlement.domain.ParticipantBalance;
@@ -15,8 +16,6 @@ import com.splitopt.backend.settlement.dto.SettlementStatusChangeRequest;
 import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.optimizer.SettlementOptimizer;
 import com.splitopt.backend.settlement.repository.SettlementRepository;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,8 +37,8 @@ public class SettlementService {
 
     private final SettlementRepository settlementRepository;
     private final GroupParticipantRepository groupParticipantRepository;
+    private final GroupRepository groupRepository;
     private final BalanceService balanceService;
-    private final EntityManager em;
     private final SettlementOptimizer optimizer = new SettlementOptimizer();
 
     /**
@@ -102,17 +101,14 @@ public class SettlementService {
      * 모임 단위 작업이라 잠금 범위도 자연스럽다.
      */
     private Group lockGroupForUpdate(Long groupId) {
-        Group group = em.find(Group.class, groupId, LockModeType.PESSIMISTIC_WRITE);
-        if (group == null) {
-            throw new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다.");
-        }
-        return group;
+        return groupRepository.findByIdForUpdate(groupId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다."));
     }
 
     /**
      * 잔액에 등장한 참여자가 모두 이 모임 소속인지 검증하고 엔티티 맵으로 돌려준다.
      *
-     * <p>참조만 걸어 저장하면(예: {@code em.getReference}) 다른 모임의 참여자 id가 섞여도 그대로
+     * <p>참조만 걸어 저장하면(예: {@code EntityManager#getReference}) 다른 모임의 참여자 id가 섞여도 그대로
      * 저장되어 모임과 참여자가 어긋난 정산이 생긴다. 저장 전에 소속을 확인한다.
      * 탈퇴자도 정산 대상이므로 활성 여부는 보지 않는다.
      */
