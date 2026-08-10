@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 public interface BudgetRepository extends JpaRepository<Budget, Long> {
@@ -24,6 +25,30 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
      */
     @Query("select coalesce(sum(e.amount), 0) from Expense e where e.group.id = :groupId")
     BigDecimal sumExpenseAmountByGroupId(@Param("groupId") Long groupId);
+
+    /**
+     * 모임 일정 전체를 감싸는 기간 (API 40 예측의 기준 시간축).
+     *
+     * <p>{@code budgets}에는 기간 컬럼이 없어 "얼마나 지났는지"를 예산만으로는 알 수 없다.
+     * 스키마 변경 없이 쓸 수 있는 유일한 시간축이 일정이라 첫 일정 시작 ~ 마지막 일정 종료를
+     * 여행 기간으로 본다. 종료 시각이 없는 일정은 시작 시각을 종료로 취급한다.
+     *
+     * <p>일정이 하나도 없으면 집계 결과가 한 행이되 값은 모두 {@code null}이다 — 호출부에서
+     * 예측 불가로 처리한다.
+     */
+    @Query("""
+            select min(s.startAt) as startAt, max(coalesce(s.endAt, s.startAt)) as endAt
+            from Schedule s
+            where s.group.id = :groupId
+            """)
+    SchedulePeriod findSchedulePeriodByGroupId(@Param("groupId") Long groupId);
+
+    /** 일정 기간 조회 결과. 일정이 없으면 두 값 모두 null이다. */
+    interface SchedulePeriod {
+        LocalDateTime getStartAt();
+
+        LocalDateTime getEndAt();
+    }
 
     /**
      * 예산 원자적 upsert (API 38).
