@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 @Builder
 public class JoinGroupResponse {
     private Long groupId;
+    private Long participantId;
     private String name;
     private String role;
     private LocalDateTime joinedAt;

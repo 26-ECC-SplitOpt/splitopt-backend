@@ -233,12 +233,28 @@ class GroupControllerTest {
     }
 
     @Test
+    @DisplayName("초대코드 재발급 — 본문 없음 → 201")
+    void reissueInvite_noBody() throws Exception {
+        loginAs(1L);
+        given(groupService.reissueInvite(eq(10L), eq(1L), any()))
+                .willReturn(IssueInviteResponse.builder()
+                        .inviteCode("NEWCODE2")
+                        .expiresAt(LocalDateTime.of(2026, 7, 26, 14, 0))
+                        .build());
+
+        mockMvc.perform(post("/api/groups/10/invite"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.inviteCode").value("NEWCODE2"));
+    }
+
+    @Test
     @DisplayName("초대코드 참여 → 200")
     void join_ok() throws Exception {
         loginAs(2L);
         given(groupService.joinByInviteCode(eq(2L), any()))
                 .willReturn(JoinGroupResponse.builder()
                         .groupId(10L)
+                        .participantId(42L)
                         .name("제주도 여행")
                         .role("MEMBER")
                         .joinedAt(LocalDateTime.of(2026, 7, 21, 14, 20))
@@ -249,6 +265,44 @@ class GroupControllerTest {
                         .content("{\"inviteCode\":\"JEJU2026\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.groupId").value(10))
+                .andExpect(jsonPath("$.data.participantId").value(42))
                 .andExpect(jsonPath("$.data.role").value("MEMBER"));
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 이미 멤버면 409")
+    void join_alreadyJoined() throws Exception {
+        loginAs(2L);
+        given(groupService.joinByInviteCode(eq(2L), any()))
+                .willThrow(new BusinessException(ErrorCode.ALREADY_JOINED));
+
+        mockMvc.perform(post("/api/groups/join")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inviteCode\":\"JEJU2026\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."))
+                .andExpect(jsonPath("$.errors[0].field").value("inviteCode"))
+                .andExpect(jsonPath("$.errors[0].code").value("ALREADY_JOINED"))
+                .andExpect(jsonPath("$.errors[0].message").value(ErrorCode.ALREADY_JOINED.getMessage()));
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 만료·무효 코드면 404")
+    void join_invalidCode() throws Exception {
+        loginAs(2L);
+        given(groupService.joinByInviteCode(eq(2L), any()))
+                .willThrow(new BusinessException(ErrorCode.INVALID_INVITE_CODE));
+
+        mockMvc.perform(post("/api/groups/join")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inviteCode\":\"BADCODE1\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."))
+                .andExpect(jsonPath("$.errors[0].field").value("inviteCode"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_INVITE_CODE"))
+                .andExpect(jsonPath("$.errors[0].message")
+                        .value(ErrorCode.INVALID_INVITE_CODE.getMessage()));
     }
 }

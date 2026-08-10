@@ -252,12 +252,24 @@ class ParticipantServiceTest {
     }
 
     @Test
-    @DisplayName("참여자 삭제 — 없는/이미 탈퇴한 참여자 404")
+    @DisplayName("참여자 삭제 — 한 번도 참여하지 않은 사용자 404")
     void remove_notFound() {
         Long groupId = groupService.create(owner.getId(), groupReq("모임")).getGroupId();
 
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> participantService.remove(groupId, owner.getId(), other.getId()));
+        assertEquals(ErrorCode.ENTITY_NOT_FOUND, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("참여자 삭제 — 이미 탈퇴한 참여자 재삭제 404")
+    void remove_alreadyInactive() {
+        Long groupId = groupService.create(owner.getId(), groupReq("모임")).getGroupId();
+        participantService.add(groupId, owner.getId(), addReq(member.getId()));
+        participantService.remove(groupId, owner.getId(), member.getId());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> participantService.remove(groupId, owner.getId(), member.getId()));
         assertEquals(ErrorCode.ENTITY_NOT_FOUND, ex.getErrorCode());
     }
 

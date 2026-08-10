@@ -253,7 +253,7 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("초대코드 재발급 — OWNER, 이전 코드 무효")
+    @DisplayName("초대코드 재발급 — OWNER, 이전 코드 무효, 만료 24시간")
     void reissueInvite() {
         GroupResponse created = groupService.create(owner.getId(), req("초대모임", null));
         String oldCode = created.getInviteCode();
@@ -266,6 +266,9 @@ class GroupServiceTest {
         assertNotNull(reissued.getInviteCode());
         assertNotEquals(oldCode, reissued.getInviteCode());
         assertNotNull(reissued.getExpiresAt());
+        LocalDateTime expected = LocalDateTime.now().plusHours(24);
+        assertTrue(reissued.getExpiresAt().isAfter(expected.minusMinutes(1)));
+        assertTrue(reissued.getExpiresAt().isBefore(expected.plusMinutes(1)));
         assertNull(reissued.getInviteUrl());
 
         JoinGroupRequest joinOld = new JoinGroupRequest();
@@ -273,6 +276,20 @@ class GroupServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> groupService.joinByInviteCode(other.getId(), joinOld));
         assertEquals(ErrorCode.INVALID_INVITE_CODE, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("초대코드 재발급 — expiresInHours 미입력 시 기본 72시간")
+    void reissueInvite_default72Hours() {
+        GroupResponse created = groupService.create(owner.getId(), req("기본만료모임", null));
+
+        IssueInviteResponse reissued =
+                groupService.reissueInvite(created.getGroupId(), owner.getId(), new IssueInviteRequest());
+
+        assertNotNull(reissued.getExpiresAt());
+        LocalDateTime expected = LocalDateTime.now().plusHours(72);
+        assertTrue(reissued.getExpiresAt().isAfter(expected.minusMinutes(1)));
+        assertTrue(reissued.getExpiresAt().isBefore(expected.plusMinutes(1)));
     }
 
     @Test
@@ -285,6 +302,7 @@ class GroupServiceTest {
         JoinGroupResponse res = groupService.joinByInviteCode(other.getId(), join);
 
         assertEquals(created.getGroupId(), res.getGroupId());
+        assertNotNull(res.getParticipantId());
         assertEquals("참여모임", res.getName());
         assertEquals("MEMBER", res.getRole());
         assertNotNull(res.getJoinedAt());
@@ -300,5 +318,42 @@ class GroupServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> groupService.joinByInviteCode(owner.getId(), join));
         assertEquals(ErrorCode.ALREADY_JOINED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 만료된 코드면 404")
+    void join_expired() {
+        GroupResponse created = groupService.create(owner.getId(), req("만료모임", null));
+        Group group = groupRepository.findById(created.getGroupId()).orElseThrow();
+        ReflectionTestUtils.setField(group, "inviteExpiresAt", LocalDateTime.now().minusHours(1));
+        em.flush();
+
+        JoinGroupRequest join = new JoinGroupRequest();
+        ReflectionTestUtils.setField(join, "inviteCode", created.getInviteCode());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> groupService.joinByInviteCode(other.getId(), join));
+        assertEquals(ErrorCode.INVALID_INVITE_CODE, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 탈퇴 후 재참여 시 participantId 유지")
+    void join_reactivate_keepsParticipantId() {
+        GroupResponse created = groupService.create(owner.getId(), req("재참여모임", null));
+        JoinGroupRequest join = new JoinGroupRequest();
+        ReflectionTestUtils.setField(join, "inviteCode", created.getInviteCode());
+
+        JoinGroupResponse first = groupService.joinByInviteCode(other.getId(), join);
+        Long originalParticipantId = first.getParticipantId();
+
+        var row = groupParticipantRepository.findById(originalParticipantId).orElseThrow();
+        row.deactivate();
+        em.flush();
+
+        JoinGroupResponse rejoined = groupService.joinByInviteCode(other.getId(), join);
+
+        assertEquals(originalParticipantId, rejoined.getParticipantId());
+        assertEquals("MEMBER", rejoined.getRole());
+        assertTrue(groupParticipantRepository.findById(originalParticipantId).orElseThrow().isActive());
     }
 }

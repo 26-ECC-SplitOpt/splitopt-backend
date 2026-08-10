@@ -155,6 +155,32 @@ class ParticipantControllerTest {
     }
 
     @Test
+    @DisplayName("참여자 삭제 — 미정산 채무 있으면 409")
+    void remove_unsettledBalance() throws Exception {
+        loginAs(1L);
+        given(participantService.remove(10L, 1L, 2L))
+                .willThrow(new BusinessException(
+                        ErrorCode.INVALID_STATE, "미정산 채무가 남아 있어 삭제할 수 없습니다."));
+
+        mockMvc.perform(delete("/api/groups/10/participants/2"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("참여자 삭제 — OWNER 본인 삭제는 409")
+    void remove_ownerSelf() throws Exception {
+        loginAs(1L);
+        given(participantService.remove(10L, 1L, 1L))
+                .willThrow(new BusinessException(
+                        ErrorCode.INVALID_STATE, "모임 개설자는 삭제할 수 없습니다."));
+
+        mockMvc.perform(delete("/api/groups/10/participants/1"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
     @DisplayName("참여자 정산 현황 → 200")
     void status_ok() throws Exception {
         loginAs(1L);
@@ -174,6 +200,10 @@ class ParticipantControllerTest {
         mockMvc.perform(get("/api/groups/10/participants/4/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.userId").value(4))
+                .andExpect(jsonPath("$.data.paidAmount").value(0))
+                .andExpect(jsonPath("$.data.burdenAmount").value(80000))
+                .andExpect(jsonPath("$.data.balance").value(-80000))
+                .andExpect(jsonPath("$.data.toSend").isArray())
                 .andExpect(jsonPath("$.data.settledStatus").value("NOT_STARTED"));
     }
 }

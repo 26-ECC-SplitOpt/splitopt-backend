@@ -20,6 +20,7 @@ import com.splitopt.backend.user.domain.User;
 import com.splitopt.backend.user.dto.MessageResponse;
 import com.splitopt.backend.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -310,6 +311,7 @@ public class GroupService {
 
         return JoinGroupResponse.builder()
                 .groupId(group.getId())
+                .participantId(participant.getId())
                 .name(group.getName())
                 .role(participant.getRole().name())
                 .joinedAt(participant.getJoinedAt())
@@ -317,19 +319,25 @@ public class GroupService {
     }
 
     private void issueInviteOn(Group group, int hours) {
-        String code = generateUniqueInviteCode();
-        group.issueInvite(code, LocalDateTime.now().plusHours(hours));
-    }
-
-    private String generateUniqueInviteCode() {
+        LocalDateTime expiresAt = LocalDateTime.now().plusHours(hours);
         for (int attempt = 0; attempt < 20; attempt++) {
-            String code = randomInviteCode();
-            if (!groupRepository.existsByInviteCode(code)) {
-                return code;
+            group.issueInvite(randomInviteCode(), expiresAt);
+            try {
+                groupRepository.flush();
+                return;
+            } catch (DataIntegrityViolationException e) {
+                if (!isInviteCodeConflict(e)) {
+                    throw e;
+                }
             }
         }
         throw new BusinessException(
                 ErrorCode.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다. 다시 시도해주세요.");
+    }
+
+    private boolean isInviteCodeConflict(DataIntegrityViolationException e) {
+        String message = String.valueOf(e.getMostSpecificCause().getMessage()).toLowerCase();
+        return message.contains("uk_groups_invite_code") || message.contains("invite_code");
     }
 
     private String randomInviteCode() {
