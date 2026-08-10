@@ -24,9 +24,11 @@ public enum ErrorCode {
 
     // 리소스
     ENTITY_NOT_FOUND(HttpStatus.NOT_FOUND, "ENTITY_NOT_FOUND", null, "요청한 리소스를 찾을 수 없습니다."),
+    INVALID_INVITE_CODE(HttpStatus.NOT_FOUND, "INVALID_INVITE_CODE", "inviteCode", "유효하지 않거나 만료된 초대코드입니다."),
 
     // 상태 충돌 (현재 상태에서 허용되지 않는 전이 등)
-    INVALID_STATE(HttpStatus.CONFLICT, "INVALID_STATE", null, "현재 상태에서 처리할 수 없는 요청입니다.");
+    INVALID_STATE(HttpStatus.CONFLICT, "INVALID_STATE", null, "현재 상태에서 처리할 수 없는 요청입니다."),
+    ALREADY_JOINED(HttpStatus.CONFLICT, "ALREADY_JOINED", "inviteCode", "이미 이 모임의 참여자입니다.");
 
     private final HttpStatus status;
     private final String code;

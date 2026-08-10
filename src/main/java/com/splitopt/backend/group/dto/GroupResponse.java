@@ -16,6 +16,8 @@ public class GroupResponse {
     private String currency;
     private Long ownerId;
     private int memberCount;
+    private String inviteCode;
+    private LocalDateTime inviteExpiresAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

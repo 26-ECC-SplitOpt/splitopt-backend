@@ -2,10 +2,7 @@ package com.splitopt.backend.group.controller;
 
 import com.splitopt.backend.global.response.ApiResponse;
 import com.splitopt.backend.global.security.UserPrincipal;
-import com.splitopt.backend.group.dto.CreateGroupRequest;
-import com.splitopt.backend.group.dto.GroupDetailResponse;
-import com.splitopt.backend.group.dto.GroupListResponse;
-import com.splitopt.backend.group.dto.GroupResponse;
+import com.splitopt.backend.group.dto.*;
 import com.splitopt.backend.group.service.GroupService;
 import com.splitopt.backend.user.dto.MessageResponse;
 import jakarta.validation.Valid;
@@ -44,6 +41,16 @@ public class GroupController {
                 groupService.getMyGroups(principal.getUserId(), page, size));
     }
 
+    // 초대코드로 참여 (/{groupId} 보다 구체적 path를 앞에 둠)
+    @PostMapping("/join")
+    public ApiResponse<JoinGroupResponse> join(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @Valid @RequestBody JoinGroupRequest request
+    ) {
+        return ApiResponse.success(
+                groupService.joinByInviteCode(principal.getUserId(), request));
+    }
+
     //모임 상세
     @GetMapping("/{groupId}")
     public ApiResponse<GroupDetailResponse> getDetail(
@@ -73,5 +80,19 @@ public class GroupController {
     ) {
         return ApiResponse.success(
                 groupService.delete(groupId, principal.getUserId()));
+    }
+
+    // 초대코드 재발급 (OWNER)
+    @PostMapping("/{groupId}/invite")
+    public ResponseEntity<ApiResponse<IssueInviteResponse>> reissueInvite(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long groupId,
+            @Valid @RequestBody(required = false) IssueInviteRequest request
+    ) {
+        IssueInviteRequest body = request != null ? request : new IssueInviteRequest();
+        IssueInviteResponse data =
+                groupService.reissueInvite(groupId, principal.getUserId(), body);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(data));
     }
 }

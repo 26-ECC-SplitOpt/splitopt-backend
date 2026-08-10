@@ -7,6 +7,7 @@ import com.splitopt.backend.global.security.JwtTokenProvider;
 import com.splitopt.backend.global.security.UserPrincipal;
 import com.splitopt.backend.group.dto.AddParticipantResponse;
 import com.splitopt.backend.group.dto.GroupParticipantItemResponse;
+import com.splitopt.backend.group.dto.ParticipantStatusResponse;
 import com.splitopt.backend.group.service.ParticipantService;
 import com.splitopt.backend.user.dto.MessageResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -22,6 +23,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -150,5 +152,28 @@ class ParticipantControllerTest {
 
         mockMvc.perform(delete("/api/groups/10/participants/3"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("참여자 정산 현황 → 200")
+    void status_ok() throws Exception {
+        loginAs(1L);
+        given(participantService.status(10L, 1L, 4L)).willReturn(
+                ParticipantStatusResponse.builder()
+                        .userId(4L)
+                        .name("박민수")
+                        .paidAmount(BigDecimal.ZERO)
+                        .burdenAmount(new BigDecimal("80000"))
+                        .balance(new BigDecimal("-80000"))
+                        .toSend(List.of())
+                        .toReceive(List.of())
+                        .settledStatus("NOT_STARTED")
+                        .build()
+        );
+
+        mockMvc.perform(get("/api/groups/10/participants/4/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.userId").value(4))
+                .andExpect(jsonPath("$.data.settledStatus").value("NOT_STARTED"));
     }
 }

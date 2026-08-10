@@ -27,11 +27,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class GroupService {
+
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final int DEFAULT_INVITE_HOURS = 72;
+    private static final int INVITE_CODE_LENGTH = 8;
+    private static final String INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final GroupRepository groupRepository;
     private final GroupParticipantRepository groupParticipantRepository;
@@ -43,9 +51,8 @@ public class GroupService {
     private final SettlementRepository settlementRepository;
     private final BudgetRepository budgetRepository;
     private final ScheduleRepository scheduleRepository;
-    private static final int MAX_PAGE_SIZE = 100;
 
-    //모임 생성
+    //모임 생성 (+ 초대코드 자동 발급)
     @Transactional
     public GroupResponse create(Long userId, CreateGroupRequest request) {
         User owner = userRepository.findById(userId)
@@ -66,6 +73,8 @@ public class GroupService {
                 .displayName(null)
                 .build());
 
+        issueInviteOn(saved, DEFAULT_INVITE_HOURS);
+
         return toResponse(saved, 1);
     }
 
@@ -77,6 +86,8 @@ public class GroupService {
                 .currency(group.getCurrency())
                 .ownerId(group.getOwner().getId())
                 .memberCount(memberCount)
+                .inviteCode(group.getInviteCode())
+                .inviteExpiresAt(group.getInviteExpiresAt())
                 .createdAt(group.getCreatedAt())
                 .build();
     }
@@ -147,7 +158,7 @@ public class GroupService {
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다."));
 
-        GroupParticipant me = groupParticipantRepository
+        groupParticipantRepository
                 .findByGroupIdAndUserId(groupId, userId)
                 .filter(GroupParticipant::isActive)
                 .orElseThrow(() -> new BusinessException(
@@ -173,6 +184,8 @@ public class GroupService {
                 .description(group.getDescription())
                 .currency(group.getCurrency())
                 .ownerId(group.getOwner().getId())
+                .inviteCode(group.getInviteCode())
+                .inviteExpiresAt(group.getInviteExpiresAt())
                 .participants(participants)
                 .totalExpense(totalExpense)
                 .createdAt(group.getCreatedAt())
@@ -241,5 +254,89 @@ public class GroupService {
         groupRepository.delete(group);
 
         return new MessageResponse("모임이 삭제되었습니다.");
+    }
+
+    /** 초대코드 재발급 (OWNER). 기존 코드는 덮어써서 무효화된다. */
+    @Transactional
+    public IssueInviteResponse reissueInvite(Long groupId, Long userId, IssueInviteRequest request) {
+        Group group = groupRepository.findById(groupId)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다."));
+
+        if (!group.getOwner().getId().equals(userId)) {
+            throw new BusinessException(
+                    ErrorCode.ACCESS_DENIED, "모임 개설자만 초대코드를 재발급할 수 있습니다.");
+        }
+
+        int hours = request.getExpiresInHours() != null
+                ? request.getExpiresInHours()
+                : DEFAULT_INVITE_HOURS;
+        issueInviteOn(group, hours);
+
+        return IssueInviteResponse.builder()
+                .inviteCode(group.getInviteCode())
+                .inviteUrl(null)
+                .expiresAt(group.getInviteExpiresAt())
+                .build();
+    }
+
+    /** 초대코드로 모임 참여. 탈퇴 이력이 있으면 재활성화. */
+    @Transactional
+    public JoinGroupResponse joinByInviteCode(Long userId, JoinGroupRequest request) {
+        String code = request.getInviteCode().trim();
+        Group group = groupRepository.findByInviteCode(code)
+                .filter(Group::isInviteValid)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_INVITE_CODE));
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+
+        var existing = groupParticipantRepository.findByGroupIdAndUserId(group.getId(), userId);
+        GroupParticipant participant;
+        if (existing.isPresent()) {
+            participant = existing.get();
+            if (participant.isActive()) {
+                throw new BusinessException(ErrorCode.ALREADY_JOINED);
+            }
+            participant.reactivate(Role.MEMBER, null);
+        } else {
+            participant = groupParticipantRepository.save(GroupParticipant.builder()
+                    .group(group)
+                    .user(user)
+                    .role(Role.MEMBER)
+                    .displayName(null)
+                    .build());
+        }
+
+        return JoinGroupResponse.builder()
+                .groupId(group.getId())
+                .name(group.getName())
+                .role(participant.getRole().name())
+                .joinedAt(participant.getJoinedAt())
+                .build();
+    }
+
+    private void issueInviteOn(Group group, int hours) {
+        String code = generateUniqueInviteCode();
+        group.issueInvite(code, LocalDateTime.now().plusHours(hours));
+    }
+
+    private String generateUniqueInviteCode() {
+        for (int attempt = 0; attempt < 20; attempt++) {
+            String code = randomInviteCode();
+            if (!groupRepository.existsByInviteCode(code)) {
+                return code;
+            }
+        }
+        throw new BusinessException(
+                ErrorCode.INTERNAL_SERVER_ERROR, "초대코드 생성에 실패했습니다. 다시 시도해주세요.");
+    }
+
+    private String randomInviteCode() {
+        StringBuilder sb = new StringBuilder(INVITE_CODE_LENGTH);
+        for (int i = 0; i < INVITE_CODE_LENGTH; i++) {
+            sb.append(INVITE_CODE_ALPHABET.charAt(RANDOM.nextInt(INVITE_CODE_ALPHABET.length())));
+        }
+        return sb.toString();
     }
 }

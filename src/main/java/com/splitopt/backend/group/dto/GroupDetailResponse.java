@@ -15,6 +15,8 @@ public class GroupDetailResponse {
     private String description;
     private String currency;
     private Long ownerId;
+    private String inviteCode;
+    private LocalDateTime inviteExpiresAt;
     private List<GroupParticipantItemResponse> participants;
     private BigDecimal totalExpense;
     private LocalDateTime createdAt;

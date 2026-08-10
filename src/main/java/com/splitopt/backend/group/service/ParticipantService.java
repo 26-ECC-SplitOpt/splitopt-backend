@@ -8,9 +8,14 @@ import com.splitopt.backend.group.domain.GroupParticipant.Role;
 import com.splitopt.backend.group.dto.AddParticipantRequest;
 import com.splitopt.backend.group.dto.AddParticipantResponse;
 import com.splitopt.backend.group.dto.GroupParticipantItemResponse;
+import com.splitopt.backend.group.dto.ParticipantStatusResponse;
 import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.group.repository.GroupRepository;
+import com.splitopt.backend.settlement.domain.Settlement;
+import com.splitopt.backend.settlement.domain.SettlementStatus;
 import com.splitopt.backend.settlement.dto.ParticipantBalanceResponse;
+import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
+import com.splitopt.backend.settlement.repository.SettlementRepository;
 import com.splitopt.backend.settlement.service.BalanceService;
 import com.splitopt.backend.user.domain.User;
 import com.splitopt.backend.user.dto.MessageResponse;
@@ -20,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -30,6 +36,7 @@ public class ParticipantService {
     private final GroupParticipantRepository groupParticipantRepository;
     private final UserRepository userRepository;
     private final BalanceService balanceService;
+    private final SettlementRepository settlementRepository;
 
     /**
      * 참여자 추가. 가입된 유저를 userId로 모임에 MEMBER로 등록한다.
@@ -101,6 +108,75 @@ public class ParticipantService {
 
         target.deactivate();
         return new MessageResponse("참여자가 모임에서 제외되었습니다.");
+    }
+
+    //참여자별 정산 현황
+    @Transactional(readOnly = true)
+    public ParticipantStatusResponse status(Long groupId, Long actorUserId, Long targetUserId) {
+        requireGroup(groupId);
+        requireActiveMember(groupId, actorUserId);
+
+        GroupParticipant target = groupParticipantRepository
+                .findByGroupIdAndUserId(groupId, targetUserId)
+                .orElseThrow(() -> new BusinessException(
+                        ErrorCode.ENTITY_NOT_FOUND, "참여자를 찾을 수 없습니다."));
+
+        ParticipantBalanceResponse balance = balanceService.getBalances(groupId).stream()
+                .filter(b -> b.participantId().equals(target.getId()))
+                .findFirst()
+                .orElse(new ParticipantBalanceResponse(
+                        target.getId(),
+                        target.getEffectiveDisplayName(),
+                        target.isActive(),
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO,
+                        BigDecimal.ZERO));
+
+        List<Settlement> mine = settlementRepository.findMine(groupId, targetUserId);
+        List<ParticipantStatusResponse.SettlementLeg> toSend = new ArrayList<>();
+        List<ParticipantStatusResponse.SettlementLeg> toReceive = new ArrayList<>();
+        long completed = 0;
+
+        for (Settlement s : mine) {
+            if (s.getStatus() == SettlementStatus.COMPLETED) {
+                completed++;
+                continue;
+            }
+            boolean iAmSender = s.getFromParticipant().getUser().getId().equals(targetUserId);
+            if (iAmSender) {
+                GroupParticipant counter = s.getToParticipant();
+                toSend.add(ParticipantStatusResponse.SettlementLeg.builder()
+                        .settlementId(s.getId())
+                        .toUserId(counter.getUser().getId())
+                        .toName(counter.getEffectiveDisplayName())
+                        .amount(s.getAmount())
+                        .status(s.getStatus().name())
+                        .build());
+            } else {
+                GroupParticipant counter = s.getFromParticipant();
+                toReceive.add(ParticipantStatusResponse.SettlementLeg.builder()
+                        .settlementId(s.getId())
+                        .fromUserId(counter.getUser().getId())
+                        .fromName(counter.getEffectiveDisplayName())
+                        .amount(s.getAmount())
+                        .status(s.getStatus().name())
+                        .build());
+            }
+        }
+
+        String settledStatus = SettlementSummaryResponse.of(mine.size(), completed).status().name();
+
+        return ParticipantStatusResponse.builder()
+                .userId(target.getUser().getId())
+                .name(target.getEffectiveDisplayName())
+                .paidAmount(balance.paid())
+                .burdenAmount(balance.owed())
+                .balance(balance.balance())
+                .toSend(toSend)
+                .toReceive(toReceive)
+                .settledStatus(settledStatus)
+                .build();
     }
 
     /** 순잔액(netBalance)이 0이 아니면 미정산 채무가 남은 것으로 본다. */

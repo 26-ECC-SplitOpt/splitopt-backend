@@ -260,4 +260,30 @@ class ParticipantServiceTest {
                 () -> participantService.remove(groupId, owner.getId(), other.getId()));
         assertEquals(ErrorCode.ENTITY_NOT_FOUND, ex.getErrorCode());
     }
+
+    @Test
+    @DisplayName("참여자 정산 현황 — 멤버 조회")
+    void status_ok() {
+        Long groupId = groupService.create(owner.getId(), groupReq("모임")).getGroupId();
+        participantService.add(groupId, owner.getId(), addReq(member.getId()));
+
+        var status = participantService.status(groupId, owner.getId(), member.getId());
+
+        assertEquals(member.getId(), status.getUserId());
+        assertEquals("김철수", status.getName());
+        assertEquals("NOT_STARTED", status.getSettledStatus());
+        assertNotNull(status.getPaidAmount());
+        assertNotNull(status.getToSend());
+        assertNotNull(status.getToReceive());
+    }
+
+    @Test
+    @DisplayName("참여자 정산 현황 — 비참여자 403")
+    void status_denied() {
+        Long groupId = groupService.create(owner.getId(), groupReq("모임")).getGroupId();
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> participantService.status(groupId, other.getId(), owner.getId()));
+        assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
 }
