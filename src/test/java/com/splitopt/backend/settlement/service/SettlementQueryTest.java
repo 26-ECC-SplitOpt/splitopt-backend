@@ -233,10 +233,17 @@ class SettlementQueryTest {
 
         settlementService.optimizeAndSave(group.getId(), balances);
         List<SettlementResponse> before = settlementService.getSettlements(group.getId());
+        List<Long> beforeIds = before.stream().map(SettlementResponse::id).toList();
 
         // 재실행은 기존 PENDING을 지우고 새 id로 다시 넣는다 — 정렬이 없으면 여기서 순서가 흔들린다
         settlementService.optimizeAndSave(group.getId(), balances);
         List<SettlementResponse> after = settlementService.getSettlements(group.getId());
+
+        // 이 테스트의 전제(id 재발급)부터 확인한다. 재실행이 기존 건을 그대로 두는 no-op이 되면
+        // 정렬이 흔들릴 일 자체가 없어져, 아래 정렬 단언이 통과해도 아무것도 검증하지 못한다.
+        assertTrue(after.stream().map(SettlementResponse::id).noneMatch(beforeIds::contains),
+                "재실행하면 기존 PENDING은 지워지고 새 id로 다시 생성돼야 한다: "
+                        + beforeIds + " → " + after.stream().map(SettlementResponse::id).toList());
 
         // id는 재실행마다 새로 발급되므로 값을 고정할 수 없다. 정렬 계약 자체를 양쪽에서 검증한다.
         assertEquals(2, before.size());
