@@ -7,6 +7,11 @@ import com.splitopt.backend.budget.service.BudgetService;
 import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.global.exception.GlobalExceptionHandler;
+import com.splitopt.backend.global.security.JwtTokenProvider;
+import com.splitopt.backend.global.security.UserPrincipal;
+import com.splitopt.backend.group.service.GroupAccessGuard;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,15 +19,22 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -30,7 +42,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * 예산 컨트롤러 웹 계층 테스트 (API 38·39·40).
- * HTTP 상태 매핑(200/400/404)·@Valid·JSON 직렬화를 검증한다.
+ * HTTP 상태 매핑(200/400/401/403/404)·@Valid·JSON 직렬화를 검증한다.
+ *
+ * <p>예산은 모임 참여자만 조회·설정할 수 있다 — 비참여자 403은 {@link GroupAccessGuard}가 막는다.
  */
 @WebMvcTest(controllers = BudgetController.class)
 @Import(GlobalExceptionHandler.class)
@@ -42,6 +56,24 @@ class BudgetControllerTest {
 
     @MockitoBean
     private BudgetService budgetService;
+
+    @MockitoBean
+    private GroupAccessGuard groupAccessGuard;
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
+
+    /** 기본 상태: 로그인한 참여자(가드 통과). 비참여자 케이스는 개별 테스트에서 다시 세팅한다. */
+    @BeforeEach
+    void loginAsMember() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(new UserPrincipal(7L), null, List.of()));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     /** 예산 20만원에 사용액 5만원인 상태. */
     private BudgetResponse sampleBudget() {
@@ -178,5 +210,106 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("설정된 예산이 없습니다."))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("예산 설정(38) 비참여자 → 403, 남의 모임 예산을 바꿀 수 없다")
+    void upsert_forbiddenForNonMember() throws Exception {
+        denyMembership();
+
+        mockMvc.perform(put("/api/groups/1/budget")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":200000}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("이 모임의 참여자가 아닙니다."));
+
+        verify(budgetService, never()).upsert(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("예산 현황 조회(39) 비참여자 → 403")
+    void getBudget_forbiddenForNonMember() throws Exception {
+        denyMembership();
+
+        mockMvc.perform(get("/api/groups/1/budget"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("이 모임의 참여자가 아닙니다."));
+
+        verify(budgetService, never()).getBudget(anyLong());
+    }
+
+    @Test
+    @DisplayName("초과 예측(40) 비참여자 → 403")
+    void getForecast_forbiddenForNonMember() throws Exception {
+        denyMembership();
+
+        mockMvc.perform(get("/api/groups/1/budget/forecast"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("이 모임의 참여자가 아닙니다."));
+
+        verify(budgetService, never()).getForecast(anyLong());
+    }
+
+    @Test
+    @DisplayName("인증 principal 없음 → 401")
+    void getBudget_unauthorizedWithoutPrincipal() throws Exception {
+        SecurityContextHolder.clearContext();
+
+        mockMvc.perform(get("/api/groups/1/budget"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("예산 설정(38) 없는 모임 → 404, 서비스는 호출되지 않음")
+    void upsert_notFoundForMissingGroup() throws Exception {
+        denyMissingGroup();
+
+        mockMvc.perform(put("/api/groups/404/budget")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":200000}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."));
+
+        // 가드가 먼저 끊지 않으면 없는 모임에 예산을 쓰려다 FK 위반으로 500이 난다
+        verify(budgetService, never()).upsert(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("예산 현황 조회(39) 없는 모임 → 404 (예산 미설정 404와 구분되지 않으나 상태는 같다)")
+    void getBudget_notFoundForMissingGroup() throws Exception {
+        denyMissingGroup();
+
+        mockMvc.perform(get("/api/groups/404/budget"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."));
+
+        verify(budgetService, never()).getBudget(anyLong());
+    }
+
+    @Test
+    @DisplayName("초과 예측(40) 없는 모임 → 404")
+    void getForecast_notFoundForMissingGroup() throws Exception {
+        denyMissingGroup();
+
+        mockMvc.perform(get("/api/groups/404/budget/forecast"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."));
+
+        verify(budgetService, never()).getForecast(anyLong());
+    }
+
+    /** 로그인은 했지만 이 모임 참여자가 아닌 상태로 만든다. */
+    private void denyMembership() {
+        willThrow(new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 참여자가 아닙니다."))
+                .given(groupAccessGuard).requireMember(eq(1L), anyLong());
+    }
+
+    /** 경로의 모임 자체가 없는 상태로 만든다 — 가드가 403이 아니라 404로 끊는다. */
+    private void denyMissingGroup() {
+        willThrow(new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다."))
+                .given(groupAccessGuard).requireMember(eq(404L), anyLong());
     }
 }
