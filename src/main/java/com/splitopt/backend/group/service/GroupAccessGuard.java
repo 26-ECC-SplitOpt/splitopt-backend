@@ -18,6 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>없는 모임은 404, 모임은 있지만 참여자가 아니면 403 — {@link GroupService}의 모임 상세(7)와
  * 같은 규칙이다.
+ *
+ * <p><b>서비스의 존재 확인과 중복되는 것은 의도된 것이다.</b> 이 가드가 통과시킨 뒤에도
+ * {@code BalanceService.validateGroupExists}·{@code SettlementService.lockGroupForUpdate}가 모임을
+ * 다시 확인한다. 가드는 API 경계를, 서비스의 확인은 그 서비스를 직접 호출하는 경로를 지키기
+ * 때문에 어느 쪽도 다른 쪽을 대신하지 못한다. 비용은 인덱스를 타는 조회 한 번이라, 한쪽을
+ * 지워 계층을 얇게 만드는 것보다 그대로 두는 편이 안전하다.
  */
 @Component
 @RequiredArgsConstructor
@@ -31,6 +37,11 @@ public class GroupAccessGuard {
      *
      * <p>탈퇴자(is_active=false)는 거부한다. 모임 상세(7)와 같은 기준이며, 탈퇴한 사람이 모임
      * 데이터를 계속 들여다볼 수 있으면 안 되기 때문이다.
+     *
+     * <p><b>반환 엔티티는 컨트롤러 시점에 준영속(detached)이다.</b> 이 메서드의 트랜잭션이 끝난
+     * 뒤이므로, 이미 로딩된 {@code id} 외의 지연 로딩 필드(예: {@code getUser().getName()})에
+     * 접근하면 {@code LazyInitializationException}이 난다. 컨트롤러에서는 참여자 id만 꺼내 쓰고,
+     * 다른 필드가 필요하면 트랜잭션 안에서 다시 조회한다.
      *
      * @return 요청자의 참여자 엔티티 — 참여자 id가 필요한 권한 검증(27 SEND/CONFIRM)에 쓴다
      * @throws BusinessException 모임이 없으면 404, 활성 참여자가 아니면 403

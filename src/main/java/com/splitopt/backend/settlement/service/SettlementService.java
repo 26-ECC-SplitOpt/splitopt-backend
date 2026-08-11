@@ -133,13 +133,7 @@ public class SettlementService {
                 .toList();
     }
 
-    /** 미정산 내역 조회 (API 28). */
-    @Transactional(readOnly = true)
-    public List<SettlementResponse> getPending(Long groupId) {
-        return getByStatus(groupId, SettlementStatus.PENDING);
-    }
-
-    /** 상태별 정산 조회 (API 25/28 공통). */
+    /** 상태별 정산 조회 (API 25 필터 · 28 미정산 — 컨트롤러가 {@code ?status=}를 파싱해 넘긴다). */
     @Transactional(readOnly = true)
     public List<SettlementResponse> getByStatus(Long groupId, SettlementStatus status) {
         return settlementRepository.findByGroup_IdAndStatus(groupId, status).stream()
