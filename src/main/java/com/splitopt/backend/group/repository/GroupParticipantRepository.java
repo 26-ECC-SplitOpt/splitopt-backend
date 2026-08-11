@@ -2,6 +2,9 @@ package com.splitopt.backend.group.repository;
 
 import com.splitopt.backend.group.domain.GroupParticipant;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 
 import java.util.List;
 import java.util.Optional;
@@ -18,4 +21,11 @@ public interface GroupParticipantRepository extends JpaRepository<GroupParticipa
     Optional<GroupParticipant> findByIdAndGroupId(Long participantId, Long groupId);
 
     Optional<GroupParticipant> findByIdAndGroupIdAndIsActiveTrue(Long participantId, Long groupId);
+
+    long countByGroupIdAndIsActiveTrue(Long groupId);
+
+    Optional<GroupParticipant> findByGroupIdAndUserId(Long groupId, Long userId);
+
+    @EntityGraph(attributePaths = "group")
+    Page<GroupParticipant> findAllByUserIdAndIsActiveTrue(Long userId, Pageable pageable);
 }
