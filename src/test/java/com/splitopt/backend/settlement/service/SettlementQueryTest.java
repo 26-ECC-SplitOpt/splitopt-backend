@@ -126,6 +126,23 @@ class SettlementQueryTest {
         }
     }
 
+    /**
+     * 정렬 계약(금액 내림차순 → 동액이면 id 오름차순)을 두 키 모두 검증한다.
+     *
+     * <p>재실행처럼 id를 미리 알 수 없는 경우에 쓴다. id를 아는 경우에는 기대 순서를 그대로
+     * 단언하는 편이 더 강하다.
+     */
+    private void assertOrderedByAmountDescThenIdAsc(List<SettlementResponse> settlements) {
+        for (int i = 1; i < settlements.size(); i++) {
+            SettlementResponse prev = settlements.get(i - 1);
+            SettlementResponse cur = settlements.get(i);
+            int byAmount = prev.amount().compareTo(cur.amount());
+            assertTrue(byAmount > 0 || (byAmount == 0 && prev.id() < cur.id()),
+                    "금액 내림차순 → 동액은 id 오름차순이어야 한다: "
+                            + settlements.stream().map(s -> s.amount() + "/" + s.id()).toList());
+        }
+    }
+
     @Test
     @DisplayName("전체 조회(25)는 금액 내림차순, 동액은 id 오름차순으로 내려온다")
     void getSettlementsOrdersByAmountThenId() {
@@ -165,9 +182,13 @@ class SettlementQueryTest {
         Settlement midLater = all.get(2);
         Settlement small = all.get(3);
 
-        // p1(u1)은 세 건의 수취인 — 금액이 모두 달라 내림차순만 확인된다
+        // p1이 받을 20000원을 한 건 더 만들어 받을 묶음에도 동액 타이브레이크가 생기게 한다
+        Settlement midForReceiver = settlement(group, p3, p1, "20000");
+        em.flush();
+
         MySettlementsResponse receiver = settlementService.getMySettlements(group.getId(), u1.getId());
-        assertIterableEquals(List.of(big.getId(), mid.getId(), small.getId()),
+        assertIterableEquals(
+                List.of(big.getId(), mid.getId(), midForReceiver.getId(), small.getId()),
                 receiver.toReceive().stream().map(MySettlementsResponse.Item::settlementId).toList());
         assertTrue(receiver.toSend().isEmpty());
 
@@ -204,24 +225,26 @@ class SettlementQueryTest {
     @Test
     @DisplayName("최적화 재실행(24)으로 PENDING이 재생성돼도 정렬은 유지된다")
     void orderStaysStableAcrossRerun() {
+        // 20000원 두 건이 나오도록 잔액을 잡는다 — 동액이 없으면 재실행 후 id 정렬을 검증할 수 없다
         List<ParticipantBalance> balances = List.of(
-                new ParticipantBalance(p1.getId(), new BigDecimal("60000")),
-                new ParticipantBalance(p2.getId(), new BigDecimal("-10000")),
-                new ParticipantBalance(p3.getId(), new BigDecimal("-20000")),
-                new ParticipantBalance(p4.getId(), new BigDecimal("-30000")));
+                new ParticipantBalance(p1.getId(), new BigDecimal("40000")),
+                new ParticipantBalance(p2.getId(), new BigDecimal("-20000")),
+                new ParticipantBalance(p3.getId(), new BigDecimal("-20000")));
 
         settlementService.optimizeAndSave(group.getId(), balances);
-        List<BigDecimal> before = settlementService.getSettlements(group.getId()).stream()
-                .map(SettlementResponse::amount).toList();
+        List<SettlementResponse> before = settlementService.getSettlements(group.getId());
 
         // 재실행은 기존 PENDING을 지우고 새 id로 다시 넣는다 — 정렬이 없으면 여기서 순서가 흔들린다
         settlementService.optimizeAndSave(group.getId(), balances);
-        List<BigDecimal> after = settlementService.getSettlements(group.getId()).stream()
-                .map(SettlementResponse::amount).toList();
+        List<SettlementResponse> after = settlementService.getSettlements(group.getId());
 
-        assertSortedByAmountDesc(before);
-        assertSortedByAmountDesc(after);
-        assertIterableEquals(before, after);
+        // id는 재실행마다 새로 발급되므로 값을 고정할 수 없다. 정렬 계약 자체를 양쪽에서 검증한다.
+        assertEquals(2, before.size());
+        assertOrderedByAmountDescThenIdAsc(before);
+        assertOrderedByAmountDescThenIdAsc(after);
+        assertIterableEquals(
+                before.stream().map(SettlementResponse::amount).toList(),
+                after.stream().map(SettlementResponse::amount).toList());
     }
 
     @Test
