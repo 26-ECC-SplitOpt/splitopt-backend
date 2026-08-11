@@ -282,7 +282,8 @@ class SettlementServiceTest {
                 group.getId(), List.of(bal(p1, "120000"), bal(p2, "-40000"), bal(p3, "-80000")));
         completeFully(saved.get(0));
 
-        List<SettlementResponse> pending = settlementService.getPending(group.getId());
+        List<SettlementResponse> pending =
+                settlementService.getByStatus(group.getId(), SettlementStatus.PENDING);
         assertEquals(1, pending.size());
         assertEquals("PENDING", pending.get(0).status());
     }

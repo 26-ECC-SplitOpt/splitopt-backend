@@ -261,9 +261,55 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.success").value(false));
     }
 
+    @Test
+    @DisplayName("예산 설정(38) 없는 모임 → 404, 서비스는 호출되지 않음")
+    void upsert_notFoundForMissingGroup() throws Exception {
+        denyMissingGroup();
+
+        mockMvc.perform(put("/api/groups/404/budget")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":200000}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."));
+
+        // 가드가 먼저 끊지 않으면 없는 모임에 예산을 쓰려다 FK 위반으로 500이 난다
+        verify(budgetService, never()).upsert(anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("예산 현황 조회(39) 없는 모임 → 404 (예산 미설정 404와 구분되지 않으나 상태는 같다)")
+    void getBudget_notFoundForMissingGroup() throws Exception {
+        denyMissingGroup();
+
+        mockMvc.perform(get("/api/groups/404/budget"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."));
+
+        verify(budgetService, never()).getBudget(anyLong());
+    }
+
+    @Test
+    @DisplayName("초과 예측(40) 없는 모임 → 404")
+    void getForecast_notFoundForMissingGroup() throws Exception {
+        denyMissingGroup();
+
+        mockMvc.perform(get("/api/groups/404/budget/forecast"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."));
+
+        verify(budgetService, never()).getForecast(anyLong());
+    }
+
     /** 로그인은 했지만 이 모임 참여자가 아닌 상태로 만든다. */
     private void denyMembership() {
         willThrow(new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 참여자가 아닙니다."))
                 .given(groupAccessGuard).requireMember(eq(1L), anyLong());
+    }
+
+    /** 경로의 모임 자체가 없는 상태로 만든다 — 가드가 403이 아니라 404로 끊는다. */
+    private void denyMissingGroup() {
+        willThrow(new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "모임을 찾을 수 없습니다."))
+                .given(groupAccessGuard).requireMember(eq(404L), anyLong());
     }
 }
