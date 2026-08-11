@@ -139,28 +139,66 @@ class SettlementQueryTest {
     }
 
     @Test
-    @DisplayName("미정산 조회(28)도 같은 정렬을 따른다")
+    @DisplayName("미정산 조회(28)도 같은 정렬을 따른다 — 동액 두 건이 id 오름차순으로 남는다")
     void getByStatusOrdersByAmountThenId() {
         List<Settlement> all = mixedAmountSettlements();
-        all.get(1).markSent(); // 20000 한 건을 PENDING에서 빼 필터가 걸린 상태로 만든다
+        Settlement big = all.get(0);
+        Settlement mid = all.get(1);
+        Settlement midLater = all.get(2);
+        all.get(3).markSent(); // 10000 한 건을 PENDING에서 빼 필터가 걸린 상태로 만든다(동액 두 건은 남긴다)
         em.flush();
 
         List<SettlementResponse> pending =
                 settlementService.getByStatus(group.getId(), SettlementStatus.PENDING);
 
-        assertEquals(3, pending.size());
+        assertIterableEquals(List.of(big.getId(), mid.getId(), midLater.getId()),
+                pending.stream().map(SettlementResponse::id).toList());
         assertSortedByAmountDesc(pending.stream().map(SettlementResponse::amount).toList());
     }
 
     @Test
-    @DisplayName("내 정산(26)은 보낼/받을 묶음 안에서도 금액 내림차순이다")
+    @DisplayName("내 정산(26)은 받을·보낼 묶음 안에서도 금액 내림차순, 동액은 id 오름차순이다")
     void getMySettlementsOrdersWithinBuckets() {
-        mixedAmountSettlements(); // p1은 세 건의 수취인, p2는 한 건의 수취인이자 한 건의 송금인
+        List<Settlement> all = mixedAmountSettlements();
+        Settlement big = all.get(0);
+        Settlement mid = all.get(1);
+        Settlement midLater = all.get(2);
+        Settlement small = all.get(3);
 
-        MySettlementsResponse mine = settlementService.getMySettlements(group.getId(), u1.getId());
+        // p1(u1)은 세 건의 수취인 — 금액이 모두 달라 내림차순만 확인된다
+        MySettlementsResponse receiver = settlementService.getMySettlements(group.getId(), u1.getId());
+        assertIterableEquals(List.of(big.getId(), mid.getId(), small.getId()),
+                receiver.toReceive().stream().map(MySettlementsResponse.Item::settlementId).toList());
+        assertTrue(receiver.toSend().isEmpty());
 
-        assertEquals(3, mine.toReceive().size());
-        assertSortedByAmountDesc(mine.toReceive().stream().map(MySettlementsResponse.Item::amount).toList());
+        // p4는 20000원 두 건의 송금인 — 보낼 묶음에서 동액 타이브레이크가 확인된다
+        MySettlementsResponse sender =
+                settlementService.getMySettlements(group.getId(), p4.getUser().getId());
+        assertIterableEquals(List.of(mid.getId(), midLater.getId()),
+                sender.toSend().stream().map(MySettlementsResponse.Item::settlementId).toList());
+        assertSortedByAmountDesc(sender.toSend().stream()
+                .map(MySettlementsResponse.Item::amount).toList());
+    }
+
+    @Test
+    @DisplayName("내 정산(26)의 완료 묶음도 같은 정렬을 따른다")
+    void getMySettlementsOrdersCompletedBucket() {
+        List<Settlement> all = mixedAmountSettlements();
+        Settlement mid = all.get(1);
+        Settlement midLater = all.get(2);
+        // p4가 보낸 20000원 두 건을 완료 상태로 — 방향과 무관하게 completed로 모인다
+        for (Settlement s : List.of(mid, midLater)) {
+            s.markSent();
+            s.confirm();
+        }
+        em.flush();
+
+        MySettlementsResponse sender =
+                settlementService.getMySettlements(group.getId(), p4.getUser().getId());
+
+        assertIterableEquals(List.of(mid.getId(), midLater.getId()),
+                sender.completed().stream().map(MySettlementsResponse.Item::settlementId).toList());
+        assertTrue(sender.toSend().isEmpty(), "완료된 건은 보낼 묶음에서 빠진다");
     }
 
     @Test
