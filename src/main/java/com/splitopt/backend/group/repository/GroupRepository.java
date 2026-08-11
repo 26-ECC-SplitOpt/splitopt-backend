@@ -11,6 +11,10 @@ import java.util.Optional;
 
 public interface GroupRepository extends JpaRepository<Group, Long> {
 
+    Optional<Group> findByInviteCode(String inviteCode);
+
+    boolean existsByInviteCode(String inviteCode);
+
     /**
      * 모임 행 배타 잠금 조회. 모임 단위로 직렬화해야 하는 작업(정산 최적화 재실행 등)에서
      * 읽기 전에 잠가 동시 요청의 read-modify-write 경합을 막는다.

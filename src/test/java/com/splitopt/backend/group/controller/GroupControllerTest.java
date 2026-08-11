@@ -68,6 +68,8 @@ class GroupControllerTest {
                 .currency("KRW")
                 .ownerId(1L)
                 .memberCount(1)
+                .inviteCode("ABCD1234")
+                .inviteExpiresAt(LocalDateTime.of(2026, 7, 24, 14, 5))
                 .createdAt(LocalDateTime.of(2026, 7, 21, 14, 5))
                 .build();
         given(groupService.create(eq(1L), any())).willReturn(res);
@@ -78,7 +80,8 @@ class GroupControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.groupId").value(10))
-                .andExpect(jsonPath("$.data.currency").value("KRW"));
+                .andExpect(jsonPath("$.data.currency").value("KRW"))
+                .andExpect(jsonPath("$.data.inviteCode").value("ABCD1234"));
     }
 
     @Test
@@ -130,6 +133,8 @@ class GroupControllerTest {
                 .description("메모")
                 .currency("KRW")
                 .ownerId(1L)
+                .inviteCode("ABCD1234")
+                .inviteExpiresAt(LocalDateTime.of(2026, 7, 24, 14, 5))
                 .participants(List.of(GroupParticipantItemResponse.builder()
                         .participantId(7L).userId(1L).name("지은").role("OWNER").build()))
                 .totalExpense(BigDecimal.ZERO)
@@ -139,6 +144,7 @@ class GroupControllerTest {
 
         mockMvc.perform(get("/api/groups/10"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.inviteCode").value("ABCD1234"))
                 .andExpect(jsonPath("$.data.participants[0].participantId").value(7))
                 .andExpect(jsonPath("$.data.participants[0].userId").value(1))
                 .andExpect(jsonPath("$.data.participants[0].role").value("OWNER"))
@@ -207,5 +213,96 @@ class GroupControllerTest {
         mockMvc.perform(delete("/api/groups/999999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    @DisplayName("초대코드 재발급 → 201")
+    void reissueInvite_ok() throws Exception {
+        loginAs(1L);
+        given(groupService.reissueInvite(eq(10L), eq(1L), any()))
+                .willReturn(IssueInviteResponse.builder()
+                        .inviteCode("NEWCODE1")
+                        .expiresAt(LocalDateTime.of(2026, 7, 25, 14, 0))
+                        .build());
+
+        mockMvc.perform(post("/api/groups/10/invite")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expiresInHours\":48}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.inviteCode").value("NEWCODE1"));
+    }
+
+    @Test
+    @DisplayName("초대코드 재발급 — 본문 없음 → 201")
+    void reissueInvite_noBody() throws Exception {
+        loginAs(1L);
+        given(groupService.reissueInvite(eq(10L), eq(1L), any()))
+                .willReturn(IssueInviteResponse.builder()
+                        .inviteCode("NEWCODE2")
+                        .expiresAt(LocalDateTime.of(2026, 7, 26, 14, 0))
+                        .build());
+
+        mockMvc.perform(post("/api/groups/10/invite"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.inviteCode").value("NEWCODE2"));
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 → 200")
+    void join_ok() throws Exception {
+        loginAs(2L);
+        given(groupService.joinByInviteCode(eq(2L), any()))
+                .willReturn(JoinGroupResponse.builder()
+                        .groupId(10L)
+                        .participantId(42L)
+                        .name("제주도 여행")
+                        .role("MEMBER")
+                        .joinedAt(LocalDateTime.of(2026, 7, 21, 14, 20))
+                        .build());
+
+        mockMvc.perform(post("/api/groups/join")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inviteCode\":\"JEJU2026\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.groupId").value(10))
+                .andExpect(jsonPath("$.data.participantId").value(42))
+                .andExpect(jsonPath("$.data.role").value("MEMBER"));
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 이미 멤버면 409")
+    void join_alreadyJoined() throws Exception {
+        loginAs(2L);
+        given(groupService.joinByInviteCode(eq(2L), any()))
+                .willThrow(new BusinessException(ErrorCode.ALREADY_JOINED));
+
+        mockMvc.perform(post("/api/groups/join")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inviteCode\":\"JEJU2026\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."))
+                .andExpect(jsonPath("$.errors[0].field").value("inviteCode"))
+                .andExpect(jsonPath("$.errors[0].code").value("ALREADY_JOINED"))
+                .andExpect(jsonPath("$.errors[0].message").value(ErrorCode.ALREADY_JOINED.getMessage()));
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 만료·무효 코드면 404")
+    void join_invalidCode() throws Exception {
+        loginAs(2L);
+        given(groupService.joinByInviteCode(eq(2L), any()))
+                .willThrow(new BusinessException(ErrorCode.INVALID_INVITE_CODE));
+
+        mockMvc.perform(post("/api/groups/join")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inviteCode\":\"BADCODE1\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."))
+                .andExpect(jsonPath("$.errors[0].field").value("inviteCode"))
+                .andExpect(jsonPath("$.errors[0].code").value("INVALID_INVITE_CODE"))
+                .andExpect(jsonPath("$.errors[0].message")
+                        .value(ErrorCode.INVALID_INVITE_CODE.getMessage()));
     }
 }

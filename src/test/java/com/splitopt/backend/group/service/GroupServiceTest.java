@@ -14,6 +14,10 @@ import com.splitopt.backend.group.dto.CreateGroupRequest;
 import com.splitopt.backend.group.dto.GroupDetailResponse;
 import com.splitopt.backend.group.dto.GroupListResponse;
 import com.splitopt.backend.group.dto.GroupResponse;
+import com.splitopt.backend.group.dto.IssueInviteRequest;
+import com.splitopt.backend.group.dto.IssueInviteResponse;
+import com.splitopt.backend.group.dto.JoinGroupRequest;
+import com.splitopt.backend.group.dto.JoinGroupResponse;
 import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.group.repository.GroupRepository;
 import com.splitopt.backend.schedule.domain.Schedule;
@@ -93,6 +97,8 @@ class GroupServiceTest {
         assertEquals("KRW", res.getCurrency());
         assertEquals(owner.getId(), res.getOwnerId());
         assertEquals(1, res.getMemberCount());
+        assertNotNull(res.getInviteCode());
+        assertNotNull(res.getInviteExpiresAt());
     }
 
     @Test
@@ -117,6 +123,8 @@ class GroupServiceTest {
         assertEquals(owner.getId(), res.getParticipants().get(0).getUserId());
         assertEquals("OWNER", res.getParticipants().get(0).getRole());
         assertEquals(0, res.getTotalExpense().compareTo(BigDecimal.ZERO));
+        assertNotNull(res.getInviteCode());
+        assertNotNull(res.getInviteExpiresAt());
     }
 
     @Test
@@ -242,5 +250,110 @@ class GroupServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> groupService.delete(999_999L, owner.getId()));
         assertEquals(ErrorCode.ENTITY_NOT_FOUND, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("초대코드 재발급 — OWNER, 이전 코드 무효, 만료 24시간")
+    void reissueInvite() {
+        GroupResponse created = groupService.create(owner.getId(), req("초대모임", null));
+        String oldCode = created.getInviteCode();
+
+        IssueInviteRequest req = new IssueInviteRequest();
+        ReflectionTestUtils.setField(req, "expiresInHours", 24);
+        IssueInviteResponse reissued =
+                groupService.reissueInvite(created.getGroupId(), owner.getId(), req);
+
+        assertNotNull(reissued.getInviteCode());
+        assertNotEquals(oldCode, reissued.getInviteCode());
+        assertNotNull(reissued.getExpiresAt());
+        LocalDateTime expected = LocalDateTime.now().plusHours(24);
+        assertTrue(reissued.getExpiresAt().isAfter(expected.minusMinutes(1)));
+        assertTrue(reissued.getExpiresAt().isBefore(expected.plusMinutes(1)));
+        assertNull(reissued.getInviteUrl());
+
+        JoinGroupRequest joinOld = new JoinGroupRequest();
+        ReflectionTestUtils.setField(joinOld, "inviteCode", oldCode);
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> groupService.joinByInviteCode(other.getId(), joinOld));
+        assertEquals(ErrorCode.INVALID_INVITE_CODE, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("초대코드 재발급 — expiresInHours 미입력 시 기본 72시간")
+    void reissueInvite_default72Hours() {
+        GroupResponse created = groupService.create(owner.getId(), req("기본만료모임", null));
+
+        IssueInviteResponse reissued =
+                groupService.reissueInvite(created.getGroupId(), owner.getId(), new IssueInviteRequest());
+
+        assertNotNull(reissued.getExpiresAt());
+        LocalDateTime expected = LocalDateTime.now().plusHours(72);
+        assertTrue(reissued.getExpiresAt().isAfter(expected.minusMinutes(1)));
+        assertTrue(reissued.getExpiresAt().isBefore(expected.plusMinutes(1)));
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 성공")
+    void join_ok() {
+        GroupResponse created = groupService.create(owner.getId(), req("참여모임", null));
+        JoinGroupRequest join = new JoinGroupRequest();
+        ReflectionTestUtils.setField(join, "inviteCode", created.getInviteCode());
+
+        JoinGroupResponse res = groupService.joinByInviteCode(other.getId(), join);
+
+        assertEquals(created.getGroupId(), res.getGroupId());
+        assertNotNull(res.getParticipantId());
+        assertEquals("참여모임", res.getName());
+        assertEquals("MEMBER", res.getRole());
+        assertNotNull(res.getJoinedAt());
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 이미 멤버면 409")
+    void join_already() {
+        GroupResponse created = groupService.create(owner.getId(), req("중복모임", null));
+        JoinGroupRequest join = new JoinGroupRequest();
+        ReflectionTestUtils.setField(join, "inviteCode", created.getInviteCode());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> groupService.joinByInviteCode(owner.getId(), join));
+        assertEquals(ErrorCode.ALREADY_JOINED, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 만료된 코드면 404")
+    void join_expired() {
+        GroupResponse created = groupService.create(owner.getId(), req("만료모임", null));
+        Group group = groupRepository.findById(created.getGroupId()).orElseThrow();
+        ReflectionTestUtils.setField(group, "inviteExpiresAt", LocalDateTime.now().minusHours(1));
+        em.flush();
+
+        JoinGroupRequest join = new JoinGroupRequest();
+        ReflectionTestUtils.setField(join, "inviteCode", created.getInviteCode());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> groupService.joinByInviteCode(other.getId(), join));
+        assertEquals(ErrorCode.INVALID_INVITE_CODE, ex.getErrorCode());
+    }
+
+    @Test
+    @DisplayName("초대코드 참여 — 탈퇴 후 재참여 시 participantId 유지")
+    void join_reactivate_keepsParticipantId() {
+        GroupResponse created = groupService.create(owner.getId(), req("재참여모임", null));
+        JoinGroupRequest join = new JoinGroupRequest();
+        ReflectionTestUtils.setField(join, "inviteCode", created.getInviteCode());
+
+        JoinGroupResponse first = groupService.joinByInviteCode(other.getId(), join);
+        Long originalParticipantId = first.getParticipantId();
+
+        var row = groupParticipantRepository.findById(originalParticipantId).orElseThrow();
+        row.deactivate();
+        em.flush();
+
+        JoinGroupResponse rejoined = groupService.joinByInviteCode(other.getId(), join);
+
+        assertEquals(originalParticipantId, rejoined.getParticipantId());
+        assertEquals("MEMBER", rejoined.getRole());
+        assertTrue(groupParticipantRepository.findById(originalParticipantId).orElseThrow().isActive());
     }
 }
