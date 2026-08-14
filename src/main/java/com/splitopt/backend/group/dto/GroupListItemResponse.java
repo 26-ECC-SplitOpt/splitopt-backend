@@ -11,9 +11,9 @@ import java.time.LocalDateTime;
 public class GroupListItemResponse {
     private Long groupId;
     private String name;
-    private int memberCount;
-    private BigDecimal totalExpense;
+    private int participantCount;
+    private BigDecimal totalAmount;
     private BigDecimal myBalance;
-    private String settledStatus; // NOT_STARTED / IN_PROGRESS / DONE
+    private String settlementStatus; // NOT_STARTED / IN_PROGRESS / DONE
     private LocalDateTime createdAt;
 }

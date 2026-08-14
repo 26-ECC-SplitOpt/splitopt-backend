@@ -283,7 +283,7 @@ class ParticipantServiceTest {
 
         assertEquals(member.getId(), status.getUserId());
         assertEquals("김철수", status.getName());
-        assertEquals("NOT_STARTED", status.getSettledStatus());
+        assertEquals("NOT_STARTED", status.getSettlementStatus());
         assertNotNull(status.getPaidAmount());
         assertNotNull(status.getToSend());
         assertNotNull(status.getToReceive());

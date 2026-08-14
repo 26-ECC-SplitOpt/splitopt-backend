@@ -104,10 +104,10 @@ class GroupControllerTest {
                 .groups(List.of(GroupListItemResponse.builder()
                         .groupId(10L)
                         .name("강릉 당일치기")
-                        .memberCount(1)
-                        .totalExpense(BigDecimal.ZERO)
+                        .participantCount(1)
+                        .totalAmount(BigDecimal.ZERO)
                         .myBalance(BigDecimal.ZERO)
-                        .settledStatus("NOT_STARTED")
+                        .settlementStatus("NOT_STARTED")
                         .createdAt(LocalDateTime.of(2026, 7, 21, 14, 5))
                         .build()))
                 .page(0)
@@ -120,7 +120,7 @@ class GroupControllerTest {
         mockMvc.perform(get("/api/groups"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalElements").value(1))
-                .andExpect(jsonPath("$.data.groups[0].settledStatus").value("NOT_STARTED"));
+                .andExpect(jsonPath("$.data.groups[0].settlementStatus").value("NOT_STARTED"));
     }
 
     @Test
@@ -137,7 +137,7 @@ class GroupControllerTest {
                 .inviteExpiresAt(LocalDateTime.of(2026, 7, 24, 14, 5))
                 .participants(List.of(GroupParticipantItemResponse.builder()
                         .participantId(7L).userId(1L).name("지은").role("OWNER").build()))
-                .totalExpense(BigDecimal.ZERO)
+                .totalAmount(BigDecimal.ZERO)
                 .createdAt(LocalDateTime.of(2026, 7, 21, 14, 5))
                 .build();
         given(groupService.getDetail(10L, 1L)).willReturn(res);
@@ -148,7 +148,7 @@ class GroupControllerTest {
                 .andExpect(jsonPath("$.data.participants[0].participantId").value(7))
                 .andExpect(jsonPath("$.data.participants[0].userId").value(1))
                 .andExpect(jsonPath("$.data.participants[0].role").value("OWNER"))
-                .andExpect(jsonPath("$.data.totalExpense").value(0));
+                .andExpect(jsonPath("$.data.totalAmount").value(0));
     }
 
     @Test
