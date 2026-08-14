@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -63,10 +64,21 @@ public class SecurityConfig {
      * <p>signup·login·logout만 인증 없이 허용하고,
      * 그 외 /api/** 는 access 토큰이 필요하다.
      * CSRF는 브라우저 폼 로그인이 아닌 JSON API라 비활성화한다.
+     *
+     * <p>CORS는 {@link CorsConfig}의 {@code CorsConfigurationSource} 빈을 시큐리티 체인에 연결해
+     * 적용한다. CORS 필터는 인증·인가보다 먼저 실행되므로, 프리플라이트(OPTIONS)는 토큰 없이도
+     * 통과하고 인증 실패(401) 응답에도 CORS 헤더가 붙는다 — 헤더가 없으면 브라우저가 실제 상태
+     * 코드 대신 CORS 오류만 보여줘 원인을 찾기 어렵다.
+     *
+     * <p>확인해 보니 이 버전에서는 {@code CorsConfigurationSource} 빈만 있어도 자동으로 적용돼
+     * 아래 {@code cors()} 호출 없이도 동작한다. 그래도 명시해 두는 이유는, 그 동작이 스프링
+     * 버전에 딸린 암묵적 규칙이라 눈에 보이지 않기 때문이다. CORS가 어디서 켜지는지 이 자리에
+     * 드러나 있어야 나중에 필터 순서를 손볼 때 놓치지 않는다.
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
         http
+                .cors(Customizer.withDefaults())
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
