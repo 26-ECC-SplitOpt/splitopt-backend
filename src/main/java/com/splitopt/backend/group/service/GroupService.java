@@ -122,9 +122,9 @@ public class GroupService {
 
     private GroupListItemResponse toListItem(Group group, Long userId) {
         Long groupId = group.getId();
-        int memberCount = (int) groupParticipantRepository.countByGroupIdAndIsActiveTrue(groupId);
+        int participantCount = (int) groupParticipantRepository.countByGroupIdAndIsActiveTrue(groupId);
 
-        BigDecimal totalExpense = expenseRepository.findAllByGroupId(groupId).stream()
+        BigDecimal totalAmount = expenseRepository.findAllByGroupId(groupId).stream()
                 .map(e -> e.getAmount())
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -139,15 +139,15 @@ public class GroupService {
                     .orElse(BigDecimal.ZERO);
         }
 
-        String settledStatus = settlementService.getSummary(groupId).status().name();
+        String settlementStatus = settlementService.getSummary(groupId).status().name();
 
         return GroupListItemResponse.builder()
                 .groupId(groupId)
                 .name(group.getName())
-                .memberCount(memberCount)
-                .totalExpense(totalExpense)
+                .participantCount(participantCount)
+                .totalAmount(totalAmount)
                 .myBalance(myBalance)
-                .settledStatus(settledStatus)
+                .settlementStatus(settlementStatus)
                 .createdAt(group.getCreatedAt())
                 .build();
     }
@@ -175,7 +175,7 @@ public class GroupService {
                                 .build())
                         .toList();
 
-        BigDecimal totalExpense = expenseRepository.findAllByGroupId(groupId).stream()
+        BigDecimal totalAmount = expenseRepository.findAllByGroupId(groupId).stream()
                 .map(e -> e.getAmount())
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
@@ -188,7 +188,7 @@ public class GroupService {
                 .inviteCode(group.getInviteCode())
                 .inviteExpiresAt(group.getInviteExpiresAt())
                 .participants(participants)
-                .totalExpense(totalExpense)
+                .totalAmount(totalAmount)
                 .createdAt(group.getCreatedAt())
                 .build();
     }

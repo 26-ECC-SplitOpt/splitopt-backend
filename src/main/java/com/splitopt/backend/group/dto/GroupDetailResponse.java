@@ -18,6 +18,6 @@ public class GroupDetailResponse {
     private String inviteCode;
     private LocalDateTime inviteExpiresAt;
     private List<GroupParticipantItemResponse> participants;
-    private BigDecimal totalExpense;
+    private BigDecimal totalAmount;
     private LocalDateTime createdAt;
 }

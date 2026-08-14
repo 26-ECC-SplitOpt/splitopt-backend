@@ -165,7 +165,7 @@ public class ParticipantService {
             }
         }
 
-        String settledStatus = SettlementSummaryResponse.of(mine.size(), completed).status().name();
+        String settlementStatus = SettlementSummaryResponse.of(mine.size(), completed).status().name();
 
         return ParticipantStatusResponse.builder()
                 .userId(target.getUser().getId())
@@ -175,7 +175,7 @@ public class ParticipantService {
                 .balance(balance.balance())
                 .toSend(toSend)
                 .toReceive(toReceive)
-                .settledStatus(settledStatus)
+                .settlementStatus(settlementStatus)
                 .build();
     }
 

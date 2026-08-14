@@ -17,7 +17,7 @@ public class ParticipantStatusResponse {
     private BigDecimal balance;
     private List<SettlementLeg> toSend;
     private List<SettlementLeg> toReceive;
-    private String settledStatus; // NOT_STARTED / IN_PROGRESS / DONE
+    private String settlementStatus; // NOT_STARTED / IN_PROGRESS / DONE
 
     @Getter
     @Builder

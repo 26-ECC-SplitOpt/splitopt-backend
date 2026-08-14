@@ -108,7 +108,7 @@ class GroupServiceTest {
         GroupListResponse res = groupService.getMyGroups(owner.getId(), 0, 20);
 
         assertEquals(1, res.getTotalElements());
-        assertEquals("NOT_STARTED", res.getGroups().get(0).getSettledStatus());
+        assertEquals("NOT_STARTED", res.getGroups().get(0).getSettlementStatus());
     }
 
     @Test
@@ -122,7 +122,7 @@ class GroupServiceTest {
         assertNotNull(res.getParticipants().get(0).getParticipantId());
         assertEquals(owner.getId(), res.getParticipants().get(0).getUserId());
         assertEquals("OWNER", res.getParticipants().get(0).getRole());
-        assertEquals(0, res.getTotalExpense().compareTo(BigDecimal.ZERO));
+        assertEquals(0, res.getTotalAmount().compareTo(BigDecimal.ZERO));
         assertNotNull(res.getInviteCode());
         assertNotNull(res.getInviteExpiresAt());
     }

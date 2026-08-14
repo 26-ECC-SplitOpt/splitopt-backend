@@ -193,7 +193,7 @@ class ParticipantControllerTest {
                         .balance(new BigDecimal("-80000"))
                         .toSend(List.of())
                         .toReceive(List.of())
-                        .settledStatus("NOT_STARTED")
+                        .settlementStatus("NOT_STARTED")
                         .build()
         );
 
@@ -204,6 +204,6 @@ class ParticipantControllerTest {
                 .andExpect(jsonPath("$.data.burdenAmount").value(80000))
                 .andExpect(jsonPath("$.data.balance").value(-80000))
                 .andExpect(jsonPath("$.data.toSend").isArray())
-                .andExpect(jsonPath("$.data.settledStatus").value("NOT_STARTED"));
+                .andExpect(jsonPath("$.data.settlementStatus").value("NOT_STARTED"));
     }
 }
