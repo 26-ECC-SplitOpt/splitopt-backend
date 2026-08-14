@@ -41,8 +41,10 @@ public class CorsConfig {
         // PATCH가 빠지면 정산 상태 변경(27)이 브라우저에서만 막힌다. 실제로 쓰는 메서드를 모두 적는다.
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
 
-        // Authorization이 빠지면 로그인 이후의 모든 요청이 실패한다.
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        // 요청 헤더는 제한하지 않는다. 허용 출처를 이미 명시했으므로 헤더까지 좁혀서 얻는 것은
+        // 사실상 없고, 프론트가 헤더를 하나 추가할 때마다 CORS 오류로 막혀 원인을 찾게 된다.
+        // ("*"는 프리플라이트가 요청한 헤더를 그대로 되돌려주는 동작이라 Authorization도 통과한다.)
+        config.setAllowedHeaders(List.of("*"));
 
         // 프론트가 axios withCredentials를 켜도 동작하도록 허용한다. 지금 인증은 쿠키가 아니라
         // Authorization 헤더라 필요하지는 않지만, 허용 출처를 와일드카드 없이 명시했으므로
