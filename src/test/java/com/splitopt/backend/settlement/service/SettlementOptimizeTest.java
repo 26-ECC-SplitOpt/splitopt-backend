@@ -107,8 +107,8 @@ class SettlementOptimizeTest {
     }
 
     private void complete(SettlementResponse s) {
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
-        settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.toParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.CONFIRM, s.toParticipantId());
     }
 
     @Test
@@ -165,7 +165,7 @@ class SettlementOptimizeTest {
         expense(p1, "30000", Map.of(p1, "10000", p2, "10000", p3, "10000"));
         List<SettlementResponse> first = settlementService.optimize(group.getId());
         SettlementResponse fromP2 = settlementFrom(first, p2);
-        settlementService.changeStatus(group.getId(), fromP2.id(), Action.SEND, p2.getId());
+        settlementService.changeStatus(group.getId(), fromP2.settlementId(), Action.SEND, p2.getId());
 
         List<SettlementResponse> second = settlementService.optimize(group.getId());
 
@@ -210,8 +210,8 @@ class SettlementOptimizeTest {
         expense(p1, "30000", Map.of(p1, "10000", p2, "10000", p3, "10000"));
         List<SettlementResponse> first = settlementService.optimize(group.getId());
         SettlementResponse fromP2 = settlementFrom(first, p2);
-        settlementService.changeStatus(group.getId(), fromP2.id(), Action.SEND, p2.getId());
-        settlementService.changeStatus(group.getId(), fromP2.id(), Action.CANCEL, p2.getId());
+        settlementService.changeStatus(group.getId(), fromP2.settlementId(), Action.SEND, p2.getId());
+        settlementService.changeStatus(group.getId(), fromP2.settlementId(), Action.CANCEL, p2.getId());
 
         settlementService.optimize(group.getId());
 

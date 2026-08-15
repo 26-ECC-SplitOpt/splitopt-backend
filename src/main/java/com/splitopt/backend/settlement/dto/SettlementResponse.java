@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
  * 지연 로딩(participant.user)에 접근하므로 반드시 트랜잭션 내부에서 생성한다.
  */
 public record SettlementResponse(
-        Long id,
+        Long settlementId,
         Long fromParticipantId,
         String fromName,
         Long toParticipantId,

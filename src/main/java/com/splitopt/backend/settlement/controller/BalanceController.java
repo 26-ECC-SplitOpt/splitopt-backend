@@ -5,7 +5,7 @@ import com.splitopt.backend.global.exception.ErrorCode;
 import com.splitopt.backend.global.response.ApiResponse;
 import com.splitopt.backend.global.security.UserPrincipal;
 import com.splitopt.backend.group.service.GroupAccessGuard;
-import com.splitopt.backend.settlement.dto.ParticipantBalanceResponse;
+import com.splitopt.backend.settlement.dto.BalanceListResponse;
 import com.splitopt.backend.settlement.service.BalanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 
 /**
  * 개인별 잔액 API (23: 결제·부담·잔액).
@@ -34,13 +33,13 @@ public class BalanceController {
 
     /** 개인별 잔액 조회(23). */
     @GetMapping
-    public ApiResponse<List<ParticipantBalanceResponse>> getBalances(
+    public ApiResponse<BalanceListResponse> getBalances(
             @PathVariable Long groupId,
             @AuthenticationPrincipal UserPrincipal principal) {
         if (principal == null) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
         groupAccessGuard.requireMember(groupId, principal.getUserId());
-        return ApiResponse.success(balanceService.getBalances(groupId));
+        return ApiResponse.success(BalanceListResponse.of(balanceService.getBalances(groupId)));
     }
 }

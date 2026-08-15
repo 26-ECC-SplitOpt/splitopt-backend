@@ -69,8 +69,8 @@ class SettlementServiceTest {
 
     /** 전이 헬퍼: 보내는 사람(from)이 SEND → 받는 사람(to)이 CONFIRM 하여 COMPLETED로 만든다. */
     private SettlementResponse completeFully(SettlementResponse s) {
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
-        return settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.toParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
+        return settlementService.changeStatus(group.getId(), s.settlementId(), Action.CONFIRM, s.toParticipantId());
     }
 
     @Test
@@ -111,7 +111,7 @@ class SettlementServiceTest {
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
 
         SettlementResponse sent = settlementService.changeStatus(
-                group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+                group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
 
         assertEquals("SENT", sent.status());
         assertNotNull(sent.sentAt());
@@ -123,10 +123,10 @@ class SettlementServiceTest {
     void confirmMarksCompleted() {
         SettlementResponse s = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
 
         SettlementResponse completed = settlementService.changeStatus(
-                group.getId(), s.id(), Action.CONFIRM, s.toParticipantId());
+                group.getId(), s.settlementId(), Action.CONFIRM, s.toParticipantId());
 
         assertEquals("COMPLETED", completed.status());
         assertNotNull(completed.completedAt());
@@ -137,10 +137,10 @@ class SettlementServiceTest {
     void cancelRestoresPending() {
         SettlementResponse s = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
 
         SettlementResponse cancelled = settlementService.changeStatus(
-                group.getId(), s.id(), Action.CANCEL, s.fromParticipantId());
+                group.getId(), s.settlementId(), Action.CANCEL, s.fromParticipantId());
 
         assertEquals("PENDING", cancelled.status());
         assertNull(cancelled.sentAt());
@@ -153,7 +153,7 @@ class SettlementServiceTest {
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.toParticipantId()));
+                () -> settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.toParticipantId()));
         assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
     }
 
@@ -162,10 +162,10 @@ class SettlementServiceTest {
     void confirmByNonReceiverForbidden() {
         SettlementResponse s = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.fromParticipantId()));
+                () -> settlementService.changeStatus(group.getId(), s.settlementId(), Action.CONFIRM, s.fromParticipantId()));
         assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
     }
 
@@ -174,10 +174,10 @@ class SettlementServiceTest {
     void cancelByNonSenderForbidden() {
         SettlementResponse s = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CANCEL, s.toParticipantId()));
+                () -> settlementService.changeStatus(group.getId(), s.settlementId(), Action.CANCEL, s.toParticipantId()));
         assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
 
         // 거부됐으므로 상태는 SENT 그대로여야 함(PENDING으로 되돌아가지 않음)
@@ -192,7 +192,7 @@ class SettlementServiceTest {
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.toParticipantId()));
+                () -> settlementService.changeStatus(group.getId(), s.settlementId(), Action.CONFIRM, s.toParticipantId()));
         assertEquals(ErrorCode.INVALID_STATE, ex.getErrorCode());
     }
 
@@ -204,7 +204,7 @@ class SettlementServiceTest {
         completeFully(s);
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> settlementService.changeStatus(group.getId(), s.id(), Action.CANCEL, s.fromParticipantId()));
+                () -> settlementService.changeStatus(group.getId(), s.settlementId(), Action.CANCEL, s.fromParticipantId()));
         assertEquals(ErrorCode.INVALID_STATE, ex.getErrorCode());
     }
 
@@ -215,7 +215,7 @@ class SettlementServiceTest {
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
         Long otherGroupId = group.getId() + 999;
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> settlementService.changeStatus(otherGroupId, s.id(), Action.SEND, s.fromParticipantId()));
+                () -> settlementService.changeStatus(otherGroupId, s.settlementId(), Action.SEND, s.fromParticipantId()));
         assertEquals(ErrorCode.ENTITY_NOT_FOUND, ex.getErrorCode());
     }
 
@@ -224,10 +224,10 @@ class SettlementServiceTest {
     void sendTwiceConflict() {
         SettlementResponse s = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
 
         BusinessException ex = assertThrows(BusinessException.class,
-                () -> settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId()));
+                () -> settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId()));
         assertEquals(ErrorCode.INVALID_STATE, ex.getErrorCode());
     }
 
@@ -330,7 +330,7 @@ class SettlementServiceTest {
     void mineSentStaysInToReceive() {
         SettlementResponse s = settlementService.optimizeAndSave(
                 group.getId(), List.of(bal(p1, "10000"), bal(p2, "-10000"))).get(0);
-        settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
+        settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
 
         MySettlementsResponse receiver = settlementService.getMySettlements(group.getId(), p1.getUser().getId());
         assertEquals(1, receiver.toReceive().size());

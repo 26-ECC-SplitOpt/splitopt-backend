@@ -162,9 +162,9 @@ class SettlementOptimizeConcurrencyTest {
     void concurrentRerunKeepsCompletedAndDoesNotRebill() throws Exception {
         SettlementResponse first = tx.execute(status -> settlementService.optimize(groupId)).get(0);
         tx.executeWithoutResult(status ->
-                settlementService.changeStatus(groupId, first.id(), Action.SEND, first.fromParticipantId()));
+                settlementService.changeStatus(groupId, first.settlementId(), Action.SEND, first.fromParticipantId()));
         tx.executeWithoutResult(status ->
-                settlementService.changeStatus(groupId, first.id(), Action.CONFIRM, first.toParticipantId()));
+                settlementService.changeStatus(groupId, first.settlementId(), Action.CONFIRM, first.toParticipantId()));
 
         List<Throwable> failures = runConcurrently(IntStream.range(0, THREADS)
                 .mapToObj(i -> (Callable<Void>) () -> {

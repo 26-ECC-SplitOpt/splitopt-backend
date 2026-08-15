@@ -83,14 +83,31 @@ class BalanceControllerTest {
         mockMvc.perform(get("/api/groups/1/balances"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data[0].participantId").value(12))
-                .andExpect(jsonPath("$.data[0].name").value("주영"))
-                .andExpect(jsonPath("$.data[0].active").value(true))
-                .andExpect(jsonPath("$.data[0].paid").value(41000))
-                .andExpect(jsonPath("$.data[0].owed").value(13668))
-                .andExpect(jsonPath("$.data[0].balance").value(27332))
-                .andExpect(jsonPath("$.data[0].netBalance").value(13666))
-                .andExpect(jsonPath("$.data[1].balance").value(-13666));
+                .andExpect(jsonPath("$.data.balances[0].participantId").value(12))
+                .andExpect(jsonPath("$.data.balances[0].name").value("주영"))
+                .andExpect(jsonPath("$.data.balances[0].active").value(true))
+                .andExpect(jsonPath("$.data.balances[0].paidAmount").value(41000))
+                .andExpect(jsonPath("$.data.balances[0].burdenAmount").value(13668))
+                .andExpect(jsonPath("$.data.balances[0].balance").value(27332))
+                .andExpect(jsonPath("$.data.balances[0].netBalance").value(13666))
+                .andExpect(jsonPath("$.data.balances[1].balance").value(-13666));
+    }
+
+    @Test
+    @DisplayName("개인별 잔액 조회(23) 총 지출은 참여자 결제액의 합이다")
+    void getBalances_totalAmountIsSumOfPaid() throws Exception {
+        // 지출마다 결제자가 정확히 한 명이므로 결제액의 합 = 지출 원장 총액이다.
+        given(balanceService.getBalances(1L)).willReturn(List.of(
+                new ParticipantBalanceResponse(12L, "주영", true,
+                        new BigDecimal("41000"), new BigDecimal("13668"),
+                        new BigDecimal("27332"), new BigDecimal("13666")),
+                new ParticipantBalanceResponse(8L, "수빈", true,
+                        BigDecimal.ZERO, new BigDecimal("13666"),
+                        new BigDecimal("-13666"), new BigDecimal("-13666"))));
+
+        mockMvc.perform(get("/api/groups/1/balances"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalAmount").value(41000));
     }
 
     @Test
@@ -103,7 +120,7 @@ class BalanceControllerTest {
 
         mockMvc.perform(get("/api/groups/1/balances"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].active").value(false));
+                .andExpect(jsonPath("$.data.balances[0].active").value(false));
     }
 
     @Test
@@ -113,7 +130,8 @@ class BalanceControllerTest {
 
         mockMvc.perform(get("/api/groups/1/balances"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data").isEmpty());
+                .andExpect(jsonPath("$.data.balances").isEmpty())
+                .andExpect(jsonPath("$.data.totalAmount").value(0));
     }
 
     @Test
