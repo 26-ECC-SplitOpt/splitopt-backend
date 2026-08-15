@@ -103,6 +103,23 @@ class AuthControllerTest {
     }
 
     @Test
+    @DisplayName("이메일에 도메인 점이 없으면 400")
+    void signup_emailInvalid_noDot() throws Exception {
+        String body = """
+            {"email":"eeee@gggg","password":"password1234","name":"홍길동"}
+            """;
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("입력값을 확인해주세요."))
+                .andExpect(jsonPath("$.errors[0].field").value("email"))
+                .andExpect(jsonPath("$.errors[0].code").value("EMAIL_INVALID"));
+    }
+
+    @Test
     @DisplayName("비밀번호가 짧으면 400")
     void signup_validation() throws Exception {
         String body = """

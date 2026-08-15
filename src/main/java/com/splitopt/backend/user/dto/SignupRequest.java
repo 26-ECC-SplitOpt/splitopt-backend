@@ -11,7 +11,10 @@ import lombok.NoArgsConstructor;
 public class SignupRequest {
 
     @NotBlank
-    @Email
+    @Email(
+            regexp = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$",
+            message = "올바른 이메일 형식이 아닙니다."
+    )
     private String email;
 
     @NotBlank(message = "비밀번호를 입력해주세요.")
