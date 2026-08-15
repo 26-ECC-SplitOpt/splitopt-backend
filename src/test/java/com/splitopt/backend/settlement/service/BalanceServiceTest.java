@@ -124,10 +124,10 @@ class BalanceServiceTest {
 
         Map<Long, ParticipantBalanceResponse> balances = balancesById();
 
-        assertAmount("30000", balances.get(p1.getId()).paid());
-        assertAmount("10000", balances.get(p1.getId()).owed());
+        assertAmount("30000", balances.get(p1.getId()).paidAmount());
+        assertAmount("10000", balances.get(p1.getId()).burdenAmount());
         assertAmount("20000", balances.get(p1.getId()).balance());
-        assertAmount("0", balances.get(p2.getId()).paid());
+        assertAmount("0", balances.get(p2.getId()).paidAmount());
         assertAmount("-10000", balances.get(p2.getId()).balance());
         assertAmount("-10000", balances.get(p3.getId()).balance());
     }
@@ -140,11 +140,11 @@ class BalanceServiceTest {
 
         Map<Long, ParticipantBalanceResponse> balances = balancesById();
 
-        assertAmount("30000", balances.get(p1.getId()).paid());
-        assertAmount("30000", balances.get(p1.getId()).owed());
+        assertAmount("30000", balances.get(p1.getId()).paidAmount());
+        assertAmount("30000", balances.get(p1.getId()).burdenAmount());
         assertAmount("0", balances.get(p1.getId()).balance());
-        assertAmount("60000", balances.get(p2.getId()).paid());
-        assertAmount("30000", balances.get(p2.getId()).owed());
+        assertAmount("60000", balances.get(p2.getId()).paidAmount());
+        assertAmount("30000", balances.get(p2.getId()).burdenAmount());
         assertAmount("30000", balances.get(p2.getId()).balance());
         assertAmount("-30000", balances.get(p3.getId()).balance());
     }
@@ -171,8 +171,8 @@ class BalanceServiceTest {
 
         assertEquals(3, balances.size(), "활성 참여자 3명 모두 조회되어야 한다");
         ParticipantBalanceResponse untouched = balances.get(p3.getId());
-        assertAmount("0", untouched.paid());
-        assertAmount("0", untouched.owed());
+        assertAmount("0", untouched.paidAmount());
+        assertAmount("0", untouched.burdenAmount());
         assertAmount("0", untouched.balance());
         assertAmount("0", untouched.netBalance());
         assertTrue(untouched.active());
@@ -206,7 +206,7 @@ class BalanceServiceTest {
     void sentSettlementIsOffset() {
         expense(p1, "30000", Map.of(p1, "10000", p2, "10000", p3, "10000"));
         SettlementResponse fromP2 = settlementFrom(p2);
-        settlementService.changeStatus(group.getId(), fromP2.id(), Action.SEND, p2.getId());
+        settlementService.changeStatus(group.getId(), fromP2.settlementId(), Action.SEND, p2.getId());
 
         Map<Long, BigDecimal> net = netById();
 
@@ -221,8 +221,8 @@ class BalanceServiceTest {
         expense(p1, "30000", Map.of(p1, "10000", p2, "10000", p3, "10000"));
         settlementService.optimize(group.getId())
                 .forEach(s -> {
-                    settlementService.changeStatus(group.getId(), s.id(), Action.SEND, s.fromParticipantId());
-                    settlementService.changeStatus(group.getId(), s.id(), Action.CONFIRM, s.toParticipantId());
+                    settlementService.changeStatus(group.getId(), s.settlementId(), Action.SEND, s.fromParticipantId());
+                    settlementService.changeStatus(group.getId(), s.settlementId(), Action.CONFIRM, s.toParticipantId());
                 });
 
         assertTrue(balanceService.getNetBalances(group.getId()).stream()
@@ -237,8 +237,8 @@ class BalanceServiceTest {
     void cancelRestoresNetBalance() {
         expense(p1, "30000", Map.of(p1, "10000", p2, "10000", p3, "10000"));
         SettlementResponse fromP2 = settlementFrom(p2);
-        settlementService.changeStatus(group.getId(), fromP2.id(), Action.SEND, p2.getId());
-        settlementService.changeStatus(group.getId(), fromP2.id(), Action.CANCEL, p2.getId());
+        settlementService.changeStatus(group.getId(), fromP2.settlementId(), Action.SEND, p2.getId());
+        settlementService.changeStatus(group.getId(), fromP2.settlementId(), Action.CANCEL, p2.getId());
 
         assertAmount("-10000", netById().get(p2.getId()));
     }
@@ -248,7 +248,7 @@ class BalanceServiceTest {
     void netBalancesSumToZero() {
         expense(p1, "41000", Map.of(p1, "13668", p2, "13666", p3, "13666"));
         SettlementResponse any = settlementService.optimize(group.getId()).get(0);
-        settlementService.changeStatus(group.getId(), any.id(), Action.SEND, any.fromParticipantId());
+        settlementService.changeStatus(group.getId(), any.settlementId(), Action.SEND, any.fromParticipantId());
 
         BigDecimal sum = balanceService.getNetBalances(group.getId()).stream()
                 .map(ParticipantBalance::amount)

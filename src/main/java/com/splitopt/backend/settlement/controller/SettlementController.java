@@ -7,6 +7,8 @@ import com.splitopt.backend.global.security.UserPrincipal;
 import com.splitopt.backend.group.service.GroupAccessGuard;
 import com.splitopt.backend.settlement.domain.SettlementStatus;
 import com.splitopt.backend.settlement.dto.MySettlementsResponse;
+import com.splitopt.backend.settlement.dto.SettlementListResponse;
+import com.splitopt.backend.settlement.dto.SettlementOptimizeResponse;
 import com.splitopt.backend.settlement.dto.SettlementResponse;
 import com.splitopt.backend.settlement.dto.SettlementStatusChangeRequest;
 import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
@@ -43,16 +45,18 @@ public class SettlementController {
      * 다시 만든다. 재실행 시 기존 PENDING은 대체되고 SENT·COMPLETED는 보존된다.
      */
     @PostMapping("/optimize")
-    public ApiResponse<List<SettlementResponse>> optimize(
+    public ApiResponse<SettlementOptimizeResponse> optimize(
             @PathVariable Long groupId,
             @AuthenticationPrincipal UserPrincipal principal) {
         groupAccessGuard.requireMember(groupId, userId(principal));
-        return ApiResponse.success(settlementService.optimize(groupId), "정산 최적화를 실행했습니다.");
+        return ApiResponse.success(
+                SettlementOptimizeResponse.of(settlementService.optimize(groupId)),
+                "정산 최적화를 실행했습니다.");
     }
 
     /** 정산 결과 전체 조회(25) / 상태별 조회(28, ?status=pending|completed). */
     @GetMapping
-    public ApiResponse<List<SettlementResponse>> getSettlements(
+    public ApiResponse<SettlementListResponse> getSettlements(
             @PathVariable Long groupId,
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(required = false) String status) {
@@ -60,7 +64,7 @@ public class SettlementController {
         List<SettlementResponse> result = (status == null || status.isBlank())
                 ? settlementService.getSettlements(groupId)
                 : settlementService.getByStatus(groupId, parseStatus(status));
-        return ApiResponse.success(result);
+        return ApiResponse.success(SettlementListResponse.of(result));
     }
 
     /** status 파라미터 파싱 — 지원하지 않는 값은 400으로 거부(조용한 전체 반환 방지). */

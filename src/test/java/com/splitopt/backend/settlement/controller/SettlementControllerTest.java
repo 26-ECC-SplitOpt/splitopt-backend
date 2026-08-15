@@ -112,8 +112,10 @@ class SettlementControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("정산 최적화를 실행했습니다."))
-                .andExpect(jsonPath("$.data[0].fromName").value("주영"))
-                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+                .andExpect(jsonPath("$.data.settlements[0].fromName").value("주영"))
+                .andExpect(jsonPath("$.data.settlements[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.data.transactionCount").value(1))
+                .andExpect(jsonPath("$.data.optimizedAt").exists());
     }
 
     @Test
@@ -124,7 +126,8 @@ class SettlementControllerTest {
 
         mockMvc.perform(post("/api/groups/1/settlements/optimize"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data").isEmpty());
+                .andExpect(jsonPath("$.data.settlements").isEmpty())
+                .andExpect(jsonPath("$.data.transactionCount").value(0));
     }
 
     @Test
@@ -163,7 +166,23 @@ class SettlementControllerTest {
         mockMvc.perform(get("/api/groups/1/settlements"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+                .andExpect(jsonPath("$.data.settlements[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.data.pendingCount").value(1));
+    }
+
+    @Test
+    @DisplayName("정산 결과 조회(25) 완료·미완료가 섞이면 건수가 각각 집계된다")
+    void getSettlements_countsByStatus() throws Exception {
+        memberOf(1L);
+        given(settlementService.getSettlements(1L)).willReturn(List.of(
+                sampleSettlement("COMPLETED"), sampleSettlement("SENT"), sampleSettlement("PENDING")));
+
+        mockMvc.perform(get("/api/groups/1/settlements"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.transactionCount").value(3))
+                .andExpect(jsonPath("$.data.completedCount").value(1))
+                // SENT는 아직 상대 확인 전이라 미완료로 센다
+                .andExpect(jsonPath("$.data.pendingCount").value(2));
     }
 
     @Test
@@ -205,7 +224,8 @@ class SettlementControllerTest {
 
         mockMvc.perform(get("/api/groups/1/settlements").param("status", "pending"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].status").value("PENDING"));
+                .andExpect(jsonPath("$.data.settlements[0].status").value("PENDING"))
+                .andExpect(jsonPath("$.data.pendingCount").value(1));
     }
 
     @Test
