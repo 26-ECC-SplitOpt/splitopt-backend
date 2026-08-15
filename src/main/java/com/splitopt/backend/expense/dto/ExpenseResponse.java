@@ -4,7 +4,7 @@ import com.splitopt.backend.expense.domain.Expense;
 import com.splitopt.backend.expense.domain.ExpenseShare;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 public record ExpenseResponse(
@@ -13,7 +13,7 @@ public record ExpenseResponse(
         BigDecimal amount,
         String category,
         String memo,
-        LocalDateTime spentAt,
+        LocalDate expenseDate,
         PayerInfo payer,
         List<ShareInfo> shares
 ) {
@@ -36,7 +36,7 @@ public record ExpenseResponse(
                 expense.getAmount(),
                 expense.getCategory().name(),
                 expense.getMemo(),
-                expense.getSpentAt(),
+                expense.getSpentAt().toLocalDate(),
                 new PayerInfo(expense.getPayer().getId(), expense.getPayer().getEffectiveDisplayName()),
                 shareInfos
         );

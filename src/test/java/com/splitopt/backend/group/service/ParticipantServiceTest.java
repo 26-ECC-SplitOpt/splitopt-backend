@@ -22,7 +22,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -216,7 +216,7 @@ class ParticipantServiceTest {
                         new BigDecimal("10000"),
                         ExpenseCategory.FOOD,
                         null,
-                        LocalDateTime.now(),
+                        LocalDate.now(),
                         null,
                         ExpenseCreateRequest.SplitMethod.EQUAL,
                         List.of(

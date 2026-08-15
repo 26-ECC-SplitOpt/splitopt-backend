@@ -65,7 +65,7 @@ public class ExpenseService {
                 .amount(request.amount())
                 .category(request.category())
                 .memo(request.memo())
-                .spentAt(request.spentAt())
+                .spentAt(request.expenseDate().atStartOfDay())
                 .build());
 
         // 2. 부담 내역(ExpenseShare) 계산 — 균등분담 vs 직접입력 분기
@@ -176,7 +176,8 @@ public class ExpenseService {
             throw new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 수정할 수 있습니다.");
         }
 
-        expense.update(request.title(), request.amount(), request.category(), request.memo(), request.spentAt());
+        expense.update(request.title(), request.amount(), request.category(), request.memo(),
+                request.expenseDate().atStartOfDay());
 
         // scheduleId가 있으면 그 일정으로 연결/변경, 없으면 연결 해제
         if (request.scheduleId() != null) {
