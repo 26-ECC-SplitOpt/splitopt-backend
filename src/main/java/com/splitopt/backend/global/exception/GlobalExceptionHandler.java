@@ -7,7 +7,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.ServletRequestBindingException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
@@ -75,6 +78,36 @@ public class GlobalExceptionHandler {
         ErrorCode code = ErrorCode.INTERNAL_SERVER_ERROR;
         return ResponseEntity.status(code.getStatus())
                 .body(ApiResponse.fail(code.getMessage()));
+    }
+
+    /**
+     * 요청 본문을 읽지 못한 경우 (잘못된 JSON · 형식이 맞지 않는 날짜 · 없는 enum 값 등).
+     *
+     * <p>이 핸들러가 없으면 아래 {@code Exception} 핸들러로 떨어져 <b>500 "서버 오류가
+     * 발생했습니다"</b>가 나간다. 원인은 요청 쪽에 있는데 서버 장애처럼 보여, 프론트가 무엇을
+     * 잘못 보냈는지 알 방법이 없다. 실제로 지출 등록 연동이 이 증상으로 막혔다.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotReadable(HttpMessageNotReadableException e) {
+        log.warn("HttpMessageNotReadable: {}", e.getMostSpecificCause().getMessage());
+        return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
+                .body(ApiResponse.fail(DEFAULT_MESSAGE,
+                        List.of(new ErrorField(null, "INVALID_INPUT",
+                                "요청 형식이 올바르지 않습니다."))));
+    }
+
+    /**
+     * 필수 파라미터 누락·타입 불일치 (예: {@code ?page=abc}).
+     * 같은 이유로 400이어야 하며, 어떤 파라미터가 문제인지 알려준다.
+     */
+    @ExceptionHandler({ServletRequestBindingException.class, MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ApiResponse<Void>> handleBinding(Exception e) {
+        String field = (e instanceof MethodArgumentTypeMismatchException mismatch) ? mismatch.getName() : null;
+        log.warn("RequestBindingException: {}", e.getMessage());
+        return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
+                .body(ApiResponse.fail(DEFAULT_MESSAGE,
+                        List.of(new ErrorField(field, "INVALID_INPUT",
+                                "요청 파라미터가 올바르지 않습니다."))));
     }
 
     @ExceptionHandler(Exception.class)

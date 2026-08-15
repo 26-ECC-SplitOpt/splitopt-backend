@@ -7,11 +7,15 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
  * 지출 등록 요청 (API 17). payer는 없음 — 결제자는 서버가 로그인 사용자로 고정.
+ *
+ * <p>날짜는 시각 없이 {@code expenseDate}(yyyy-MM-dd)로 받는다. 화면의 입력이 날짜뿐이라
+ * 시각을 요구하면 프론트가 임의의 시각을 붙여 보내야 하고, 날짜만 보내면 파싱에 실패한다.
+ * 저장은 기존 {@code spent_at} 컬럼에 그날 00:00으로 한다.
  */
 public record ExpenseCreateRequest(
 
@@ -27,8 +31,8 @@ public record ExpenseCreateRequest(
 
         String memo,
 
-        @NotNull(message = "지출 발생 시각을 입력해주세요.")
-        LocalDateTime spentAt,
+        @NotNull(message = "지출 날짜를 입력해주세요.")
+        LocalDate expenseDate,
 
         Long scheduleId, // 선택 항목, 없으면 null
 
