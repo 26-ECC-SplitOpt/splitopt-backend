@@ -6,6 +6,7 @@ import com.splitopt.backend.expense.dto.ExpenseResponse;
 import com.splitopt.backend.expense.repository.ExpenseShareRepository;
 import com.splitopt.backend.group.domain.Group;
 import com.splitopt.backend.group.domain.GroupParticipant;
+import com.splitopt.backend.schedule.domain.Schedule;
 import com.splitopt.backend.user.domain.User;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -18,12 +19,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * 지출 수정(API 20)의 부담 내역 재저장 테스트.
@@ -89,6 +93,79 @@ class ExpenseUpdateTest {
                         share -> share.getParticipant().getId(),
                         share -> share.getShareAmount(),
                         (a, b) -> a));
+    }
+
+    /** 일정을 연결한(또는 해제한) 지출 요청. */
+    private ExpenseCreateRequest requestWithSchedule(Long scheduleId) {
+        return new ExpenseCreateRequest(
+                "q1", new BigDecimal("150000"), ExpenseCategory.ETC, "q2",
+                LocalDate.of(2026, 7, 30), scheduleId,
+                ExpenseCreateRequest.SplitMethod.DIRECT,
+                List.of(
+                        new ExpenseCreateRequest.ShareInput(payer.getId(), new BigDecimal("75000")),
+                        new ExpenseCreateRequest.ShareInput(other.getId(), new BigDecimal("75000"))));
+    }
+
+    private Schedule schedule(String title) {
+        Schedule s = Schedule.builder()
+                .group(group).title(title)
+                .startAt(LocalDateTime.of(2026, 7, 30, 9, 0))
+                .build();
+        em.persist(s);
+        em.flush();
+        return s;
+    }
+
+    @Test
+    @DisplayName("등록 시 scheduleId로 일정을 연결하면 응답에 일정 정보가 담긴다")
+    void createWithSchedule() {
+        Schedule lunch = schedule("맛집 탐방");
+
+        ExpenseResponse created = expenseService.createExpense(
+                group.getId(), payer.getId(), requestWithSchedule(lunch.getId()));
+
+        assertNotNull(created.schedule());
+        assertEquals(lunch.getId(), created.schedule().scheduleId());
+        assertEquals("맛집 탐방", created.schedule().title());
+    }
+
+    @Test
+    @DisplayName("수정 시 scheduleId를 그대로 보내면 연결이 유지된다")
+    void updateKeepsScheduleWhenIdResent() {
+        Schedule lunch = schedule("맛집 탐방");
+        ExpenseResponse created = expenseService.createExpense(
+                group.getId(), payer.getId(), requestWithSchedule(lunch.getId()));
+
+        ExpenseResponse updated = expenseService.updateExpense(
+                group.getId(), created.id(), payer.getId(), requestWithSchedule(lunch.getId()));
+        em.flush();
+
+        assertNotNull(updated.schedule(), "같은 scheduleId를 다시 보내면 연결이 남아야 한다");
+        assertEquals(lunch.getId(), updated.schedule().scheduleId());
+    }
+
+    @Test
+    @DisplayName("수정 시 scheduleId를 빼면 연결이 해제된다")
+    void updateClearsScheduleWhenIdOmitted() {
+        Schedule lunch = schedule("맛집 탐방");
+        ExpenseResponse created = expenseService.createExpense(
+                group.getId(), payer.getId(), requestWithSchedule(lunch.getId()));
+
+        // 수정 화면이 기존 값을 안 실어 보내면 이 경로를 타 연결이 사라진다.
+        ExpenseResponse updated = expenseService.updateExpense(
+                group.getId(), created.id(), payer.getId(), requestWithSchedule(null));
+        em.flush();
+
+        assertNull(updated.schedule());
+    }
+
+    @Test
+    @DisplayName("일정을 연결하지 않은 지출은 schedule이 null이다")
+    void expenseWithoutScheduleHasNullField() {
+        ExpenseResponse created = expenseService.createExpense(
+                group.getId(), payer.getId(), request("150000", "75000", "75000"));
+
+        assertNull(created.schedule());
     }
 
     @Test

@@ -95,6 +95,7 @@ class ExpenseControllerTest {
         return new ExpenseResponse(1L, "d", new BigDecimal("1000"), "SHOPPING", "d",
                 LocalDate.of(2026, 8, 15),
                 new ExpenseResponse.PayerInfo(PARTICIPANT_ID, "주영"),
+                null,
                 List.of(new ExpenseResponse.ShareInfo(PARTICIPANT_ID, "주영", new BigDecimal("1000"))));
     }
 
