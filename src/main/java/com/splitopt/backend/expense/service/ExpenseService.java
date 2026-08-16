@@ -189,7 +189,13 @@ public class ExpenseService {
         }
 
         // 기존 부담 내역은 지우고 새로 계산해서 다시 저장 (금액이 바뀌었을 수 있으니 재계산 필수)
+        //
+        // 삭제를 예약만 하고 넘어가면 안 된다. Hibernate는 한 번의 flush에서 INSERT를 DELETE보다
+        // 먼저 실행하므로, 부담자가 그대로일 때 새 INSERT가 아직 남아 있는 기존 행과 부딪혀
+        // uk_share_expense_participant(expense_id, participant_id) 제약을 위반한다.
+        // 금액만 바꾸는 가장 흔한 수정이 여기에 해당해, 수정 기능 전체가 막혔다.
         expenseShareRepository.deleteAllByExpenseId(expenseId);
+        expenseShareRepository.flush();
         GroupParticipant payer = expense.getPayer();
         List<ExpenseShare> shares = (request.splitMethod() == ExpenseCreateRequest.SplitMethod.EQUAL)
                 ? buildEqualShares(expense, groupId, request, payer)

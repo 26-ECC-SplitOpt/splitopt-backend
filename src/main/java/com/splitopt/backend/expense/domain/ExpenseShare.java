@@ -10,7 +10,13 @@ import lombok.NoArgsConstructor;
 import java.math.BigDecimal;
 
 @Entity
-@Table(name = "expense_shares")
+@Table(
+        name = "expense_shares",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_share_expense_participant",
+                columnNames = {"expense_id", "participant_id"}
+        )
+)
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ExpenseShare {
