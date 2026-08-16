@@ -1,7 +1,9 @@
 package com.splitopt.backend.budget.service;
 
+import com.splitopt.backend.budget.domain.BudgetType;
 import com.splitopt.backend.budget.dto.BudgetResponse;
 import com.splitopt.backend.budget.repository.BudgetRepository;
+import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.expense.domain.Expense;
 import com.splitopt.backend.expense.domain.ExpenseCategory;
 import com.splitopt.backend.global.exception.BusinessException;
@@ -34,6 +36,8 @@ class BudgetServiceTest {
     private BudgetService budgetService;
     @Autowired
     private BudgetRepository budgetRepository;
+    @Autowired
+    private GroupParticipantRepository groupParticipantRepository;
 
     private Group group;
     private final Map<Long, GroupParticipant> payers = new HashMap<>();
@@ -48,20 +52,76 @@ class BudgetServiceTest {
     }
 
     @Test
+    @DisplayName("1인당 예산은 인원수를 곱해 총예산이 된다")
+    void perPersonMultipliesByParticipants() {
+        addParticipants(4);
+        long participants = groupParticipantRepository.countByGroupIdAndIsActiveTrue(group.getId());
+        assertEquals(4, participants);
+
+        BudgetResponse res = budgetService.upsert(
+                group.getId(), BudgetType.PER_PERSON, new BigDecimal("500000"));
+
+        assertEquals(BudgetType.PER_PERSON, res.budgetType());
+        assertEquals(0, new BigDecimal("500000").compareTo(res.budgetPerPerson()));
+        assertEquals(0, new BigDecimal("500000").multiply(BigDecimal.valueOf(participants))
+                .compareTo(res.totalBudget()));
+    }
+
+    @Test
+    @DisplayName("1인당 예산은 사용률·잔여·초과도 총예산 기준으로 판정한다")
+    void perPersonJudgesAgainstTotal() {
+        addParticipants(4);
+        BigDecimal perPerson = new BigDecimal("100000");
+        // 1인당 금액은 넘지만 총예산은 안 넘는 금액을 쓴다.
+        // 지출을 먼저 만든다 — 결제자를 만드는 과정에서 참여자가 늘어나므로 인원은 그 뒤에 센다.
+        expense(perPerson.add(new BigDecimal("1000")).toPlainString());
+        long participants = groupParticipantRepository.countByGroupIdAndIsActiveTrue(group.getId());
+        BigDecimal total = perPerson.multiply(BigDecimal.valueOf(participants));
+
+        budgetService.upsert(group.getId(), BudgetType.PER_PERSON, perPerson);
+
+        BudgetResponse res = budgetService.getBudget(group.getId());
+
+        assertEquals(0, total.compareTo(res.totalBudget()));
+        assertFalse(res.exceeded(), "1인당 금액을 넘었다고 초과가 아니다 — 총예산 기준이다");
+        assertEquals(0, total.subtract(res.spent()).compareTo(res.remaining()));
+    }
+
+    @Test
+    @DisplayName("모임 전체 예산은 1인당 금액 개념이 없어 budgetPerPerson이 null이다")
+    void totalTypeHasNoPerPersonAmount() {
+        BudgetResponse res = budgetService.upsert(
+                group.getId(), BudgetType.TOTAL, new BigDecimal("200000"));
+
+        assertEquals(BudgetType.TOTAL, res.budgetType());
+        assertNull(res.budgetPerPerson());
+        assertEquals(0, new BigDecimal("200000").compareTo(res.totalBudget()));
+    }
+
+    @Test
+    @DisplayName("budgetType을 안 보내면 모임 전체 예산으로 본다")
+    void defaultsToTotalWhenTypeOmitted() {
+        BudgetResponse res = budgetService.upsert(group.getId(), null, new BigDecimal("200000"));
+
+        assertEquals(BudgetType.TOTAL, res.budgetType());
+        assertEquals(0, new BigDecimal("200000").compareTo(res.totalBudget()));
+    }
+
+    @Test
     @DisplayName("예산 최초 설정 시 생성된다")
     void createsBudget() {
-        BudgetResponse res = budgetService.upsert(group.getId(), new BigDecimal("500000"));
+        BudgetResponse res = budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("500000"));
 
         assertEquals(group.getId(), res.groupId());
-        assertEquals(0, res.amount().compareTo(new BigDecimal("500000")));
+        assertEquals(0, res.totalBudget().compareTo(new BigDecimal("500000")));
         assertTrue(budgetRepository.existsByGroup_Id(group.getId()));
     }
 
     @Test
     @DisplayName("이미 예산이 있으면 새로 만들지 않고 금액만 수정한다 (모임당 1개)")
     void updatesExistingBudget() {
-        budgetService.upsert(group.getId(), new BigDecimal("500000"));
-        budgetService.upsert(group.getId(), new BigDecimal("700000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("500000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("700000"));
 
         assertEquals(1, budgetRepository.count(), "모임당 예산은 1개");
         assertEquals(0, budgetRepository.findByGroup_Id(group.getId()).orElseThrow()
@@ -71,15 +131,15 @@ class BudgetServiceTest {
     @Test
     @DisplayName("예산 조회 - 설정된 금액을 반환한다")
     void getBudgetReturnsAmount() {
-        budgetService.upsert(group.getId(), new BigDecimal("300000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("300000"));
         BudgetResponse res = budgetService.getBudget(group.getId());
-        assertEquals(0, res.amount().compareTo(new BigDecimal("300000")));
+        assertEquals(0, res.totalBudget().compareTo(new BigDecimal("300000")));
     }
 
     @Test
     @DisplayName("현황(39): 지출이 없으면 사용액 0·잔여는 예산 전액")
     void usageWithoutExpenses() {
-        budgetService.upsert(group.getId(), new BigDecimal("300000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("300000"));
 
         BudgetResponse res = budgetService.getBudget(group.getId());
 
@@ -94,7 +154,7 @@ class BudgetServiceTest {
     @Test
     @DisplayName("현황(39): 사용액은 모임의 지출 합계, 잔여·사용률이 함께 계산된다")
     void usageSumsGroupExpenses() {
-        budgetService.upsert(group.getId(), new BigDecimal("200000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("200000"));
         expense("120000");
         expense("30000");
 
@@ -111,7 +171,7 @@ class BudgetServiceTest {
     @Test
     @DisplayName("현황(39): 예산을 넘으면 잔여가 음수이고 초과로 표시된다")
     void usageMarksExceeded() {
-        budgetService.upsert(group.getId(), new BigDecimal("100000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("100000"));
         expense("130000");
 
         BudgetResponse res = budgetService.getBudget(group.getId());
@@ -127,7 +187,7 @@ class BudgetServiceTest {
     @Test
     @DisplayName("현황(39): 지출이 예산과 정확히 같으면 초과가 아니다 (경계)")
     void usageAtExactBudgetIsNotExceeded() {
-        budgetService.upsert(group.getId(), new BigDecimal("100000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("100000"));
         expense("100000");
 
         BudgetResponse res = budgetService.getBudget(group.getId());
@@ -142,7 +202,7 @@ class BudgetServiceTest {
     @Test
     @DisplayName("현황(39): 예산 0원에 지출이 있으면 사용률은 0이지만 초과로 표시된다")
     void zeroBudgetWithSpendingIsExceeded() {
-        budgetService.upsert(group.getId(), BigDecimal.ZERO);
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, BigDecimal.ZERO);
         expense("5000");
 
         BudgetResponse res = budgetService.getBudget(group.getId());
@@ -157,7 +217,7 @@ class BudgetServiceTest {
     @Test
     @DisplayName("현황(39): 다른 모임의 지출은 사용액에 섞이지 않는다")
     void usageIsScopedToGroup() {
-        budgetService.upsert(group.getId(), new BigDecimal("200000"));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("200000"));
         expense("50000");
 
         User otherOwner = User.builder().email("o2@x.com").password("p").name("O2").build();
@@ -176,10 +236,21 @@ class BudgetServiceTest {
     void upsertResponseCarriesUsage() {
         expense("40000");
 
-        BudgetResponse res = budgetService.upsert(group.getId(), new BigDecimal("100000"));
+        BudgetResponse res = budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("100000"));
 
         assertEquals(0, res.spent().compareTo(new BigDecimal("40000")));
         assertEquals(0, res.remaining().compareTo(new BigDecimal("60000")));
+    }
+
+    /** 이 모임에 활성 참여자를 n명 넣는다. 1인당 예산 계산의 분모가 된다. */
+    private void addParticipants(int n) {
+        for (int i = 0; i < n; i++) {
+            User u = User.builder().email("p" + i + "@x.com").password("p").name("P" + i).build();
+            em.persist(u);
+            em.persist(GroupParticipant.builder()
+                    .group(group).user(u).role(GroupParticipant.Role.MEMBER).build());
+        }
+        em.flush();
     }
 
     private void expense(String amount) {
@@ -222,20 +293,20 @@ class BudgetServiceTest {
     @DisplayName("음수 예산은 거부된다")
     void rejectsNegativeAmount() {
         assertThrows(IllegalArgumentException.class,
-                () -> budgetService.upsert(group.getId(), new BigDecimal("-1")));
+                () -> budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("-1")));
     }
 
     @Test
     @DisplayName("소수점 3자리 예산은 도메인에서 거부된다 (서비스 직접 호출)")
     void rejectsExcessiveScale() {
         assertThrows(IllegalArgumentException.class,
-                () -> budgetService.upsert(group.getId(), new BigDecimal("100.001")));
+                () -> budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("100.001")));
     }
 
     @Test
     @DisplayName("정수 11자리 예산은 도메인에서 거부된다 (DECIMAL(12,2) 초과)")
     void rejectsOversizedInteger() {
         assertThrows(IllegalArgumentException.class,
-                () -> budgetService.upsert(group.getId(), new BigDecimal("12345678901")));
+                () -> budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal("12345678901")));
     }
 }

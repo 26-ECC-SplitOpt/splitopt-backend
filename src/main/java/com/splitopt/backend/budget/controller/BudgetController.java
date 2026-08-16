@@ -37,7 +37,7 @@ public class BudgetController {
             @AuthenticationPrincipal UserPrincipal principal,
             @Valid @RequestBody BudgetRequest request) {
         requireMember(groupId, principal);
-        return ApiResponse.success(budgetService.upsert(groupId, request.amount()), "예산이 설정되었습니다.");
+        return ApiResponse.success(budgetService.upsert(groupId, request.budgetType(), request.amount()), "예산이 설정되었습니다.");
     }
 
     /** 예산 현황 조회 (39) — 사용액·잔여·초과 여부는 지출 합계에서 파생한다. */

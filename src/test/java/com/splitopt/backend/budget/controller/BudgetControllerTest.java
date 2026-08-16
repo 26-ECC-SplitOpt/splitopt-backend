@@ -1,5 +1,6 @@
 package com.splitopt.backend.budget.controller;
 
+import com.splitopt.backend.budget.domain.BudgetType;
 import com.splitopt.backend.budget.dto.BudgetForecastResponse;
 import com.splitopt.backend.budget.dto.BudgetForecastResponse.Basis;
 import com.splitopt.backend.budget.dto.BudgetResponse;
@@ -75,23 +76,23 @@ class BudgetControllerTest {
         SecurityContextHolder.clearContext();
     }
 
-    /** 예산 20만원에 사용액 5만원인 상태. */
+    /** 모임 전체 예산 20만원에 사용액 5만원인 상태. */
     private BudgetResponse sampleBudget() {
-        return new BudgetResponse(1L, new BigDecimal("200000"), new BigDecimal("50000"),
-                new BigDecimal("150000"), false, new BigDecimal("25.0"));
+        return new BudgetResponse(1L, BudgetType.TOTAL, null, new BigDecimal("200000"),
+                new BigDecimal("50000"), new BigDecimal("150000"), false, new BigDecimal("25.0"));
     }
 
     @Test
     @DisplayName("예산 설정(38) → 200, 설정 직후에도 현황이 함께 온다")
     void upsert_ok() throws Exception {
-        given(budgetService.upsert(eq(1L), any())).willReturn(sampleBudget());
+        given(budgetService.upsert(eq(1L), any(), any())).willReturn(sampleBudget());
 
         mockMvc.perform(put("/api/groups/1/budget")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"amount\":200000}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.amount").value(200000))
+                .andExpect(jsonPath("$.data.totalBudget").value(200000))
                 .andExpect(jsonPath("$.data.spent").value(50000))
                 .andExpect(jsonPath("$.data.remaining").value(150000));
     }
@@ -129,7 +130,7 @@ class BudgetControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.groupId").value(1))
-                .andExpect(jsonPath("$.data.amount").value(200000))
+                .andExpect(jsonPath("$.data.totalBudget").value(200000))
                 .andExpect(jsonPath("$.data.spent").value(50000))
                 .andExpect(jsonPath("$.data.remaining").value(150000))
                 .andExpect(jsonPath("$.data.exceeded").value(false))
@@ -140,7 +141,7 @@ class BudgetControllerTest {
     @DisplayName("예산 현황 조회(39) 초과 상태 → 잔여는 음수, exceeded true")
     void getBudget_exceeded() throws Exception {
         given(budgetService.getBudget(1L)).willReturn(new BudgetResponse(
-                1L, new BigDecimal("200000"), new BigDecimal("250000"),
+                1L, BudgetType.TOTAL, null, new BigDecimal("200000"), new BigDecimal("250000"),
                 new BigDecimal("-50000"), true, new BigDecimal("125.0")));
 
         mockMvc.perform(get("/api/groups/1/budget"))
@@ -157,16 +158,18 @@ class BudgetControllerTest {
         LocalDateTime end = LocalDateTime.of(2026, 8, 5, 0, 0);
         given(budgetService.getForecast(1L)).willReturn(new BudgetForecastResponse(
                 1L, new BigDecimal("150000"), new BigDecimal("100000"), Basis.SCHEDULE,
-                start, end, new BigDecimal("50.0"), new BigDecimal("200000"),
-                new BigDecimal("50000"), true));
+                start, end, 2L, 5L, new BigDecimal("50000"), new BigDecimal("250000"),
+                new BigDecimal("100000"), true));
 
         mockMvc.perform(get("/api/groups/1/budget/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.basis").value("SCHEDULE"))
-                .andExpect(jsonPath("$.data.elapsedRate").value(50.0))
-                .andExpect(jsonPath("$.data.projectedTotal").value(200000))
-                .andExpect(jsonPath("$.data.projectedOverspend").value(50000))
+                .andExpect(jsonPath("$.data.elapsedDays").value(2))
+                .andExpect(jsonPath("$.data.totalDays").value(5))
+                .andExpect(jsonPath("$.data.dailyAverage").value(50000))
+                .andExpect(jsonPath("$.data.projectedTotal").value(250000))
+                .andExpect(jsonPath("$.data.projectedOverage").value(100000))
                 .andExpect(jsonPath("$.data.willExceed").value(true))
                 .andExpect(jsonPath("$.data.periodStart").exists());
     }
@@ -180,7 +183,7 @@ class BudgetControllerTest {
         mockMvc.perform(get("/api/groups/1/budget/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.basis").value("NONE"))
-                .andExpect(jsonPath("$.data.amount").value(150000))
+                .andExpect(jsonPath("$.data.totalBudget").value(150000))
                 .andExpect(jsonPath("$.data.spent").value(100000))
                 .andExpect(jsonPath("$.data.projectedTotal").doesNotExist())
                 .andExpect(jsonPath("$.data.willExceed").doesNotExist());
@@ -224,7 +227,7 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.message").value("이 모임의 참여자가 아닙니다."));
 
-        verify(budgetService, never()).upsert(anyLong(), any());
+        verify(budgetService, never()).upsert(anyLong(), any(), any());
     }
 
     @Test
@@ -274,7 +277,7 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.message").value("모임을 찾을 수 없습니다."));
 
         // 가드가 먼저 끊지 않으면 없는 모임에 예산을 쓰려다 FK 위반으로 500이 난다
-        verify(budgetService, never()).upsert(anyLong(), any());
+        verify(budgetService, never()).upsert(anyLong(), any(), any());
     }
 
     @Test
