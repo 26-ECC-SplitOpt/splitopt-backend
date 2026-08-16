@@ -1,6 +1,7 @@
 package com.splitopt.backend.budget.service;
 
 import com.splitopt.backend.budget.domain.Budget;
+import com.splitopt.backend.budget.domain.BudgetType;
 import com.splitopt.backend.budget.repository.BudgetRepository;
 import com.splitopt.backend.group.domain.Group;
 import com.splitopt.backend.user.domain.User;
@@ -115,7 +116,7 @@ class BudgetUpsertAtomicityTest {
 
         List<Throwable> failures = runConcurrently(amounts.stream()
                 .map(amount -> (Callable<Void>) () -> {
-                    budgetService.upsert(groupId, amount);
+                    budgetService.upsert(groupId, BudgetType.TOTAL, amount);
                     return null;
                 })
                 .toList());
@@ -135,7 +136,7 @@ class BudgetUpsertAtomicityTest {
     @Test
     @DisplayName("이미 예산이 있는 모임에 동시 수정 요청이 몰려도 행이 늘지 않는다")
     void concurrentUpdatesDoNotDuplicateRow() throws Exception {
-        budgetService.upsert(groupId, new BigDecimal("10000"));
+        budgetService.upsert(groupId, BudgetType.TOTAL, new BigDecimal("10000"));
 
         Set<BigDecimal> amounts = IntStream.range(0, THREADS)
                 .mapToObj(i -> new BigDecimal((i + 1) * 7_000))
@@ -143,7 +144,7 @@ class BudgetUpsertAtomicityTest {
 
         List<Throwable> failures = runConcurrently(amounts.stream()
                 .map(amount -> (Callable<Void>) () -> {
-                    budgetService.upsert(groupId, amount);
+                    budgetService.upsert(groupId, BudgetType.TOTAL, amount);
                     return null;
                 })
                 .toList());
@@ -161,14 +162,14 @@ class BudgetUpsertAtomicityTest {
     @Test
     @DisplayName("수정 시 created_at은 최초 설정 시각으로 보존된다 (감사 이력 유지)")
     void updatePreservesCreatedAt() {
-        budgetService.upsert(groupId, new BigDecimal("100000"));
+        budgetService.upsert(groupId, BudgetType.TOTAL, new BigDecimal("100000"));
         Budget initial = readBudget();
         LocalDateTime createdAt = initial.getCreatedAt();
         LocalDateTime firstUpdatedAt = initial.getUpdatedAt();
         assertNotNull(createdAt, "최초 설정 시 created_at이 기록되어야 한다");
 
         // 별도 트랜잭션으로 수정 — H2는 CURRENT_TIMESTAMP가 트랜잭션 시작 시각으로 고정된다.
-        budgetService.upsert(groupId, new BigDecimal("250000"));
+        budgetService.upsert(groupId, BudgetType.TOTAL, new BigDecimal("250000"));
 
         Budget updated = readBudget();
         assertAll(
@@ -187,11 +188,11 @@ class BudgetUpsertAtomicityTest {
     @DisplayName("같은 금액으로 다시 설정해도 성공 응답과 단일 행을 유지한다 (영향 행 0)")
     void reUpsertWithIdenticalAmountSucceeds() {
         BigDecimal amount = new BigDecimal("120000.50");
-        budgetService.upsert(groupId, amount);
+        budgetService.upsert(groupId, BudgetType.TOTAL, amount);
 
         // MySQL은 값이 바뀌지 않은 upsert에 대해 영향 행 0을 반환한다.
         // 서비스가 이 값을 성공 여부로 오해하지 않아야 한다.
-        assertEquals(0, budgetService.upsert(groupId, amount).amount().compareTo(amount));
+        assertEquals(0, budgetService.upsert(groupId, BudgetType.TOTAL, amount).totalBudget().compareTo(amount));
         assertEquals(1L, countBudgetRows());
     }
 

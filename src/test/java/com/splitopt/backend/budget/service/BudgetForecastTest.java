@@ -1,5 +1,6 @@
 package com.splitopt.backend.budget.service;
 
+import com.splitopt.backend.budget.domain.BudgetType;
 import com.splitopt.backend.budget.dto.BudgetForecastResponse;
 import com.splitopt.backend.budget.dto.BudgetForecastResponse.Basis;
 import com.splitopt.backend.expense.domain.Expense;
@@ -60,7 +61,7 @@ class BudgetForecastTest {
     }
 
     private void budget(String amount) {
-        budgetService.upsert(group.getId(), new BigDecimal(amount));
+        budgetService.upsert(group.getId(), BudgetType.TOTAL, new BigDecimal(amount));
     }
 
     private void expense(String amount) {
@@ -101,10 +102,11 @@ class BudgetForecastTest {
                     () -> assertEquals(Basis.NONE, res.basis()),
                     () -> assertNull(res.projectedTotal()),
                     () -> assertNull(res.willExceed()),
-                    () -> assertNull(res.elapsedRate()),
+                    () -> assertNull(res.elapsedDays()),
+                    () -> assertNull(res.dailyAverage()),
                     () -> assertNull(res.periodStart()),
                     // 예측은 못 해도 예산·사용액은 그대로 알려준다
-                    () -> assertEquals(0, res.amount().compareTo(new BigDecimal("200000"))),
+                    () -> assertEquals(0, res.totalBudget().compareTo(new BigDecimal("200000"))),
                     () -> assertEquals(0, res.spent().compareTo(new BigDecimal("50000")))
             );
         }
@@ -116,7 +118,7 @@ class BudgetForecastTest {
             expense("50000");
             schedule(LocalDateTime.now().plusDays(3), LocalDateTime.now().plusDays(5));
 
-            assertEquals(Basis.NONE, forecast().basis(), "0으로 나눌 수 없다");
+            assertEquals(Basis.NONE, forecast().basis(), "하루도 안 지나 평균을 낼 수 없다");
         }
     }
 
@@ -129,20 +131,18 @@ class BudgetForecastTest {
         void halfwayOverPace() {
             budget("150000");
             expense("100000");
-            schedule(LocalDateTime.now().minusDays(1), LocalDateTime.now().plusDays(1));
+            // 날짜 단위로 세므로 어제~모레는 4일이고 오늘이 2일째다 — 절반이 지난 상태.
+            schedule(LocalDateTime.now().minusDays(1), LocalDateTime.now().plusDays(2));
 
             BudgetForecastResponse res = forecast();
 
             assertEquals(Basis.SCHEDULE, res.basis());
-            // 정확히 50%가 아니라 테스트 수행 시간만큼 밀리므로 범위로 본다
-            assertTrue(res.elapsedRate().compareTo(new BigDecimal("49.5")) >= 0
-                            && res.elapsedRate().compareTo(new BigDecimal("50.5")) <= 0,
-                    () -> "경과 비율이 50% 근처여야 한다: " + res.elapsedRate());
-            assertTrue(res.projectedTotal().compareTo(new BigDecimal("195000")) >= 0
-                            && res.projectedTotal().compareTo(new BigDecimal("205000")) <= 0,
-                    () -> "예상 총액은 20만원 근처여야 한다: " + res.projectedTotal());
+            assertEquals(4, res.totalDays());
+            assertEquals(2, res.elapsedDays());
+            assertEquals(0, res.projectedTotal().compareTo(new BigDecimal("200000")),
+                    () -> "이틀에 10만원 썼으니 나흘이면 20만원: " + res.projectedTotal());
             assertTrue(res.willExceed());
-            assertTrue(res.projectedOverspend().signum() > 0);
+            assertTrue(res.projectedOverage().signum() > 0);
         }
 
         @Test
@@ -156,7 +156,7 @@ class BudgetForecastTest {
 
             assertAll(
                     () -> assertFalse(res.willExceed()),
-                    () -> assertEquals(0, res.projectedOverspend().signum(),
+                    () -> assertEquals(0, res.projectedOverage().signum(),
                             "넘지 않을 때는 음수가 아니라 0이다")
             );
         }
@@ -172,7 +172,7 @@ class BudgetForecastTest {
 
             assertAll(
                     () -> assertEquals(Basis.SCHEDULE, res.basis()),
-                    () -> assertEquals(0, res.elapsedRate().compareTo(new BigDecimal("100.0"))),
+                    () -> assertEquals(res.totalDays(), res.elapsedDays(), "기간이 끝나면 전부 지난 것"),
                     () -> assertEquals(0, res.projectedTotal().compareTo(new BigDecimal("80000")),
                             "더 쓸 기간이 없으므로 현재 사용액이 곧 예상 총액"),
                     () -> assertFalse(res.willExceed())
@@ -190,7 +190,7 @@ class BudgetForecastTest {
 
             assertAll(
                     () -> assertTrue(res.willExceed()),
-                    () -> assertEquals(0, res.projectedOverspend().compareTo(new BigDecimal("30000")))
+                    () -> assertEquals(0, res.projectedOverage().compareTo(new BigDecimal("30000")))
             );
         }
 
@@ -205,7 +205,7 @@ class BudgetForecastTest {
 
             assertAll(
                     () -> assertEquals(Basis.SCHEDULE, res.basis()),
-                    () -> assertEquals(0, res.elapsedRate().compareTo(new BigDecimal("100.0")),
+                    () -> assertEquals(res.totalDays(), res.elapsedDays(),
                             "길이가 0인 기간은 나눌 수 없다"),
                     () -> assertEquals(0, res.projectedTotal().compareTo(new BigDecimal("60000")))
             );
@@ -226,7 +226,7 @@ class BudgetForecastTest {
                             "가장 이른 시작"),
                     () -> assertTrue(res.periodEnd().isAfter(LocalDateTime.now().minusDays(2)),
                             "가장 늦은 종료"),
-                    () -> assertEquals(0, res.elapsedRate().compareTo(new BigDecimal("100.0")))
+                    () -> assertEquals(res.totalDays(), res.elapsedDays())
             );
         }
 
@@ -241,7 +241,7 @@ class BudgetForecastTest {
             assertAll(
                     () -> assertEquals(0, res.projectedTotal().signum()),
                     () -> assertFalse(res.willExceed()),
-                    () -> assertEquals(0, res.projectedOverspend().signum())
+                    () -> assertEquals(0, res.projectedOverage().signum())
             );
         }
 

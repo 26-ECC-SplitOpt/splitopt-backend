@@ -29,23 +29,46 @@ public class Budget extends BaseEntity {
     @JoinColumn(name = "group_id", nullable = false, unique = true)
     private Group group;
 
+    /** 저장 금액이 무엇을 뜻하는지. 총예산 계산 기준이 달라진다. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "budget_type", nullable = false, length = 16)
+    private BudgetType budgetType;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
 
     @Builder
-    public Budget(Group group, BigDecimal amount) {
+    public Budget(Group group, BudgetType budgetType, BigDecimal amount) {
         if (group == null) {
             throw new IllegalArgumentException("group must not be null");
         }
         validateAmount(amount);
         this.group = group;
+        this.budgetType = budgetType != null ? budgetType : BudgetType.TOTAL;
         this.amount = amount;
     }
 
-    /** 예산 금액 수정 (API 38). */
-    public void updateAmount(BigDecimal amount) {
+    /** 예산 단위·금액 수정 (API 38). */
+    public void update(BudgetType budgetType, BigDecimal amount) {
         validateAmount(amount);
+        this.budgetType = budgetType != null ? budgetType : BudgetType.TOTAL;
         this.amount = amount;
+    }
+
+    /**
+     * 모임 전체 기준 총예산. 사용률·잔여·초과 판정은 모두 이 값을 기준으로 한다.
+     *
+     * @param participantCount 활성 참여자 수. {@code PER_PERSON}일 때만 쓰인다.
+     */
+    public BigDecimal totalBudget(long participantCount) {
+        return budgetType == BudgetType.PER_PERSON
+                ? amount.multiply(BigDecimal.valueOf(participantCount))
+                : amount;
+    }
+
+    /** 1인당 예산. {@code TOTAL}로 잡았다면 1인당 금액이라는 개념이 없어 null이다. */
+    public BigDecimal budgetPerPerson() {
+        return budgetType == BudgetType.PER_PERSON ? amount : null;
     }
 
     /**

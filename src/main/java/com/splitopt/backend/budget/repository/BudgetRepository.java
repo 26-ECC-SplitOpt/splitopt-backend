@@ -73,9 +73,12 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
      */
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query(value = """
-            INSERT INTO budgets (group_id, amount, created_at, updated_at)
-            VALUES (:groupId, :amount, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
-            ON DUPLICATE KEY UPDATE amount = :amount, updated_at = CURRENT_TIMESTAMP(6)
+            INSERT INTO budgets (group_id, budget_type, amount, created_at, updated_at)
+            VALUES (:groupId, :budgetType, :amount, CURRENT_TIMESTAMP(6), CURRENT_TIMESTAMP(6))
+            ON DUPLICATE KEY UPDATE budget_type = :budgetType, amount = :amount,
+                                    updated_at = CURRENT_TIMESTAMP(6)
             """, nativeQuery = true)
-    int upsertAmount(@Param("groupId") Long groupId, @Param("amount") BigDecimal amount);
+    int upsertAmount(@Param("groupId") Long groupId,
+                     @Param("budgetType") String budgetType,
+                     @Param("amount") BigDecimal amount);
 }

@@ -1,9 +1,11 @@
 package com.splitopt.backend.budget.service;
 
 import com.splitopt.backend.budget.domain.Budget;
+import com.splitopt.backend.budget.domain.BudgetType;
 import com.splitopt.backend.budget.dto.BudgetForecastResponse;
 import com.splitopt.backend.budget.dto.BudgetResponse;
 import com.splitopt.backend.budget.repository.BudgetRepository;
+import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ import java.time.LocalDateTime;
 public class BudgetService {
 
     private final BudgetRepository budgetRepository;
+    private final GroupParticipantRepository groupParticipantRepository;
 
     /**
      * 예산 설정/수정 (API 38). 모임당 1개 — 있으면 수정, 없으면 생성.
@@ -37,15 +40,17 @@ public class BudgetService {
      * 엔티티 생성을 거치지 않으므로 금액 검증은 {@link Budget#validateAmount}로 먼저 수행한다.
      */
     @Transactional
-    public BudgetResponse upsert(Long groupId, BigDecimal amount) {
+    public BudgetResponse upsert(Long groupId, BudgetType budgetType, BigDecimal amount) {
         Budget.validateAmount(amount);
-        budgetRepository.upsertAmount(groupId, amount);
+        BudgetType type = budgetType != null ? budgetType : BudgetType.TOTAL;
+        budgetRepository.upsertAmount(groupId, type.name(), amount);
         // upsert 직후에는 반드시 행이 존재한다. 없다면 UNIQUE 제약/스키마 전제가 깨진 상황.
         Budget budget = budgetRepository.findByGroup_Id(groupId)
                 .orElseThrow(() -> new BusinessException(
                         ErrorCode.INTERNAL_SERVER_ERROR, "예산 저장에 실패했습니다."));
         // 설정 직후 화면이 곧바로 현황을 보여줄 수 있도록 조회(39)와 같은 형태로 돌려준다.
-        return BudgetResponse.from(budget, budgetRepository.sumExpenseAmountByGroupId(groupId));
+        return BudgetResponse.from(budget,
+                budgetRepository.sumExpenseAmountByGroupId(groupId), participantCount(groupId));
     }
 
     /**
@@ -57,7 +62,16 @@ public class BudgetService {
     public BudgetResponse getBudget(Long groupId) {
         Budget budget = budgetRepository.findByGroup_Id(groupId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "설정된 예산이 없습니다."));
-        return BudgetResponse.from(budget, budgetRepository.sumExpenseAmountByGroupId(groupId));
+        return BudgetResponse.from(budget,
+                budgetRepository.sumExpenseAmountByGroupId(groupId), participantCount(groupId));
+    }
+
+    /**
+     * 총예산 계산에 쓸 활성 참여자 수. 탈퇴자는 앞으로 돈을 쓰지 않으므로 제외한다.
+     * 인원이 바뀌면 1인당 예산으로 잡은 모임의 총예산도 함께 바뀐다.
+     */
+    private long participantCount(Long groupId) {
+        return groupParticipantRepository.countByGroupIdAndIsActiveTrue(groupId);
     }
 
     /**
@@ -73,18 +87,22 @@ public class BudgetService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "설정된 예산이 없습니다."));
         BigDecimal spent = budgetRepository.sumExpenseAmountByGroupId(groupId);
 
+        BigDecimal totalBudget = budget.totalBudget(participantCount(groupId));
+
         BudgetRepository.SchedulePeriod period = budgetRepository.findSchedulePeriodByGroupId(groupId);
         if (period == null || period.getStartAt() == null || period.getEndAt() == null) {
-            return BudgetForecastResponse.notForecastable(groupId, budget.getAmount(), spent);
+            return BudgetForecastResponse.notForecastable(groupId, totalBudget, spent);
         }
 
-        BigDecimal elapsedRatio = BudgetForecastResponse.elapsedRatio(
+        long elapsedDays = BudgetForecastResponse.elapsedDays(
                 period.getStartAt(), period.getEndAt(), LocalDateTime.now());
-        if (elapsedRatio.signum() == 0) {
-            return BudgetForecastResponse.notForecastable(groupId, budget.getAmount(), spent);
+        if (elapsedDays == 0) {
+            // 기간 시작 전 — 하루 평균을 낼 수 없다.
+            return BudgetForecastResponse.notForecastable(groupId, totalBudget, spent);
         }
 
-        return BudgetForecastResponse.ofSchedule(groupId, budget.getAmount(), spent,
-                period.getStartAt(), period.getEndAt(), elapsedRatio);
+        return BudgetForecastResponse.ofSchedule(groupId, totalBudget, spent,
+                period.getStartAt(), period.getEndAt(),
+                elapsedDays, BudgetForecastResponse.totalDays(period.getStartAt(), period.getEndAt()));
     }
 }
