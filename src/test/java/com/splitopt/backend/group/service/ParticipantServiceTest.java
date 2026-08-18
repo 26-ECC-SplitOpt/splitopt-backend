@@ -9,6 +9,9 @@ import com.splitopt.backend.group.dto.CreateGroupRequest;
 import com.splitopt.backend.group.dto.GroupResponse;
 import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.expense.domain.ExpenseCategory;
+import com.splitopt.backend.settlement.service.SettlementService;
+import com.splitopt.backend.settlement.dto.SettlementStatusChangeRequest;
+import com.splitopt.backend.settlement.dto.SettlementResponse;
 import com.splitopt.backend.expense.dto.ExpenseCreateRequest;
 import com.splitopt.backend.expense.service.ExpenseService;
 import com.splitopt.backend.user.domain.User;
@@ -41,6 +44,8 @@ class ParticipantServiceTest {
     private GroupParticipantRepository groupParticipantRepository;
     @Autowired
     private ExpenseService expenseService;
+    @Autowired
+    private SettlementService settlementService;
 
     private User owner;
     private User member;
@@ -297,5 +302,64 @@ class ParticipantServiceTest {
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> participantService.status(groupId, other.getId(), owner.getId()));
         assertEquals(ErrorCode.ACCESS_DENIED, ex.getErrorCode());
+    }
+
+    /** 지출을 만들고, 최적화해 생긴 정산 건들을 돌려준다. */
+    private List<SettlementResponse> settlementsAfterExpense(Long groupId, Long ownerParticipantId,
+                                                             Long memberParticipantId) {
+        expenseService.createExpense(groupId, ownerParticipantId,
+                new ExpenseCreateRequest("점심", new BigDecimal("10000"), ExpenseCategory.FOOD, null,
+                        LocalDate.now(), null, ExpenseCreateRequest.SplitMethod.EQUAL,
+                        List.of(new ExpenseCreateRequest.ShareInput(ownerParticipantId, null),
+                                new ExpenseCreateRequest.ShareInput(memberParticipantId, null))));
+        return settlementService.optimize(groupId);
+    }
+
+    @Test
+    @DisplayName("참여자 삭제 — 보냈다고 표시만 한 상태(SENT)로는 나갈 수 없다")
+    void remove_blockedWhileSentButNotConfirmed() {
+        Long groupId = groupService.create(owner.getId(), groupReq("모임")).getGroupId();
+        AddParticipantResponse added =
+                participantService.add(groupId, owner.getId(), addReq(member.getId()));
+        Long ownerPid = groupParticipantRepository
+                .findByGroupIdAndUserId(groupId, owner.getId()).orElseThrow().getId();
+
+        List<SettlementResponse> settlements =
+                settlementsAfterExpense(groupId, ownerPid, added.getParticipantId());
+        SettlementResponse debt = settlements.get(0);
+
+        // 보내는 사람이 "보냈다"고 표시만 한 상태. 받는 사람은 아직 확인하지 않았고,
+        // 이 상태는 취소해서 PENDING으로 되돌릴 수도 있다.
+        settlementService.changeStatus(groupId, debt.settlementId(),
+                SettlementStatusChangeRequest.Action.SEND, debt.fromParticipantId());
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> participantService.remove(groupId, owner.getId(), member.getId()),
+                "확인 전인데 나갈 수 있으면, 돈을 안 보내고 표시만 해도 빠져나간다");
+        assertEquals(ErrorCode.INVALID_STATE, ex.getErrorCode());
+        assertTrue(groupParticipantRepository.findById(added.getParticipantId()).orElseThrow().isActive());
+    }
+
+    @Test
+    @DisplayName("참여자 삭제 — 받는 사람이 확인(COMPLETED)하면 나갈 수 있다")
+    void remove_allowedAfterConfirmed() {
+        Long groupId = groupService.create(owner.getId(), groupReq("모임")).getGroupId();
+        AddParticipantResponse added =
+                participantService.add(groupId, owner.getId(), addReq(member.getId()));
+        Long ownerPid = groupParticipantRepository
+                .findByGroupIdAndUserId(groupId, owner.getId()).orElseThrow().getId();
+
+        List<SettlementResponse> settlements =
+                settlementsAfterExpense(groupId, ownerPid, added.getParticipantId());
+        SettlementResponse debt = settlements.get(0);
+
+        settlementService.changeStatus(groupId, debt.settlementId(),
+                SettlementStatusChangeRequest.Action.SEND, debt.fromParticipantId());
+        settlementService.changeStatus(groupId, debt.settlementId(),
+                SettlementStatusChangeRequest.Action.CONFIRM, debt.toParticipantId());
+
+        participantService.remove(groupId, owner.getId(), member.getId());
+
+        assertFalse(groupParticipantRepository.findById(added.getParticipantId()).orElseThrow().isActive());
     }
 }
