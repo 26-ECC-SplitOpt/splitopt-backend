@@ -43,6 +43,24 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
             """)
     SchedulePeriod findSchedulePeriodByGroupId(@Param("groupId") Long groupId);
 
+    /**
+     * 기간이 시작되기 전에 쓴 금액 (API 40).
+     *
+     * <p>항공권·숙소처럼 여행 전에 미리 결제한 돈이다. 이미 확정된 지출이라 "하루에 얼마씩 쓰는
+     * 중"에 섞으면 안 된다. 섞으면 여행 첫날에 그 금액을 하루치로 보고 전체 일수만큼 곱해,
+     * 예상 총액이 실제의 몇 배로 부풀려진다.
+     *
+     * <p><b>경계는 시각이 아니라 날짜로 본다.</b> 경과·전체 일수를 날짜 단위로 세므로 여기서만
+     * 시각으로 자르면 어긋난다 — 첫 일정이 09시에 시작할 때, 같은 날 00시로 기록된 지출이
+     * "기간 전"으로 빠져 첫날 지출이 통째로 사라진다.
+     */
+    @Query("""
+            select coalesce(sum(e.amount), 0) from Expense e
+            where e.group.id = :groupId and e.spentAt < :periodStartDate
+            """)
+    BigDecimal sumExpenseAmountBefore(@Param("groupId") Long groupId,
+                                      @Param("periodStartDate") LocalDateTime periodStartDate);
+
     /** 일정 기간 조회 결과. 일정이 없으면 두 값 모두 null이다. */
     interface SchedulePeriod {
         LocalDateTime getStartAt();

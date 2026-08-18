@@ -101,7 +101,12 @@ public class BudgetService {
             return BudgetForecastResponse.notForecastable(groupId, totalBudget, spent);
         }
 
-        return BudgetForecastResponse.ofSchedule(groupId, totalBudget, spent,
+        // 기간 시작 '날짜'의 0시가 경계다. 경과 일수를 날짜로 세므로 여기서만 시각으로 자르면
+        // 첫날 지출이 통째로 기간 전으로 빠진다.
+        BigDecimal spentBeforePeriod = budgetRepository.sumExpenseAmountBefore(
+                groupId, period.getStartAt().toLocalDate().atStartOfDay());
+
+        return BudgetForecastResponse.ofSchedule(groupId, totalBudget, spent, spentBeforePeriod,
                 period.getStartAt(), period.getEndAt(),
                 elapsedDays, BudgetForecastResponse.totalDays(period.getStartAt(), period.getEndAt()));
     }

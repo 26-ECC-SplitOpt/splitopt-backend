@@ -158,8 +158,8 @@ class BudgetControllerTest {
         LocalDateTime end = LocalDateTime.of(2026, 8, 5, 0, 0);
         given(budgetService.getForecast(1L)).willReturn(new BudgetForecastResponse(
                 1L, new BigDecimal("150000"), new BigDecimal("100000"), Basis.SCHEDULE,
-                start, end, 2L, 5L, new BigDecimal("50000"), new BigDecimal("250000"),
-                new BigDecimal("100000"), true));
+                start, end, 2L, 5L, BigDecimal.ZERO, new BigDecimal("50000"),
+                new BigDecimal("250000"), new BigDecimal("100000"), true));
 
         mockMvc.perform(get("/api/groups/1/budget/forecast"))
                 .andExpect(status().isOk())
@@ -167,6 +167,7 @@ class BudgetControllerTest {
                 .andExpect(jsonPath("$.data.basis").value("SCHEDULE"))
                 .andExpect(jsonPath("$.data.elapsedDays").value(2))
                 .andExpect(jsonPath("$.data.totalDays").value(5))
+                .andExpect(jsonPath("$.data.spentBeforePeriod").value(0))
                 .andExpect(jsonPath("$.data.dailyAverage").value(50000))
                 .andExpect(jsonPath("$.data.projectedTotal").value(250000))
                 .andExpect(jsonPath("$.data.projectedOverage").value(100000))
