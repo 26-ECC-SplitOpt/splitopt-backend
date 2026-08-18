@@ -126,11 +126,41 @@ public class BalanceService {
     }
 
     /**
+     * 한 참여자에게 <b>확정되지 않은 몫</b>이 남아 있는지 (참여자 삭제·탈퇴 판정용).
+     *
+     * <p>여기서는 {@code COMPLETED}만 상계한다. 잔액 조회(23)·최적화(24)가 {@code SENT}까지
+     * 상계하는 것과 다르다. 그쪽은 "이미 보낸 돈에 대해 송금 건을 또 만들지 않는다"가 목적이라
+     * 보낸 시점부터 빼는 게 맞지만, 여기서는 <b>모임을 떠나도 되는가</b>를 판정한다.
+     *
+     * <p>{@code SENT}는 보낸 사람이 스스로 표시한 상태이고 받는 사람의 확인 전이며,
+     * 취소해서 {@code PENDING}으로 되돌릴 수 있다. 그것까지 상계하면 돈을 보내지 않고 보냈다고
+     * 표시만 해도 잔액이 0이 되어 나갈 수 있다. 나간 뒤에는 되돌릴 방법이 없다.
+     *
+     * @return 확정 기준 순잔액이 0이 아니면 true
+     */
+    @Transactional(readOnly = true)
+    public boolean hasUnconfirmedBalance(Long groupId, Long participantId) {
+        Map<Long, BigDecimal> paid = expenseService.getPaidAmountsByParticipant(groupId);
+        Map<Long, BigDecimal> owed = expenseService.getOwedAmountsByParticipant(groupId);
+        Map<Long, BigDecimal> confirmed = adjustmentsFor(groupId, Set.of(SettlementStatus.COMPLETED));
+
+        BigDecimal net = paid.getOrDefault(participantId, BigDecimal.ZERO)
+                .subtract(owed.getOrDefault(participantId, BigDecimal.ZERO))
+                .add(confirmed.getOrDefault(participantId, BigDecimal.ZERO));
+        return net.compareTo(BigDecimal.ZERO) != 0;
+    }
+
+    /**
      * 이미 오간 돈의 참여자별 상계액. 보낸 쪽은 +금액, 받은 쪽은 −금액이며 총합은 0이다.
      */
     private Map<Long, BigDecimal> settledAdjustments(Long groupId) {
+        return adjustmentsFor(groupId, SETTLED_STATUSES);
+    }
+
+    /** 주어진 상태의 정산만 상계한다. */
+    private Map<Long, BigDecimal> adjustmentsFor(Long groupId, Set<SettlementStatus> statuses) {
         Map<Long, BigDecimal> adjustments = new HashMap<>();
-        for (Settlement s : settlementRepository.findByGroup_IdAndStatusIn(groupId, SETTLED_STATUSES)) {
+        for (Settlement s : settlementRepository.findByGroup_IdAndStatusIn(groupId, statuses)) {
             adjustments.merge(s.getFromParticipant().getId(), s.getAmount(), BigDecimal::add);
             adjustments.merge(s.getToParticipant().getId(), s.getAmount().negate(), BigDecimal::add);
         }

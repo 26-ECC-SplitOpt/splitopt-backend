@@ -179,12 +179,16 @@ public class ParticipantService {
                 .build();
     }
 
-    /** 순잔액(netBalance)이 0이 아니면 미정산 채무가 남은 것으로 본다. */
+    /**
+     * 확정되지 않은 몫이 남아 있으면 내보내지 않는다.
+     *
+     * <p>판정은 {@code COMPLETED}만 상계한 잔액으로 한다. 잔액 조회(23)가 쓰는 {@code netBalance}는
+     * {@code SENT}까지 상계하는데, {@code SENT}는 보낸 사람이 스스로 표시한 상태라 받는 사람의
+     * 확인 전이고 취소해서 되돌릴 수도 있다. 그걸로 판정하면 돈을 보내지 않고 보냈다고 표시만
+     * 해도 나갈 수 있고, 나간 뒤에는 되돌릴 방법이 없다.
+     */
     private void requireNoUnsettledBalance(Long groupId, Long participantId) {
-        boolean hasDebt = balanceService.getBalances(groupId).stream()
-                .filter(b -> b.participantId().equals(participantId))
-                .map(ParticipantBalanceResponse::netBalance)
-                .anyMatch(net -> net.compareTo(BigDecimal.ZERO) != 0);
+        boolean hasDebt = balanceService.hasUnconfirmedBalance(groupId, participantId);
         if (hasDebt) {
             throw new BusinessException(
                     ErrorCode.INVALID_STATE, "미정산 채무가 남아 있어 삭제할 수 없습니다.");
