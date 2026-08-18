@@ -7,10 +7,13 @@ package com.splitopt.backend.settlement.dto;
  * ({@code total == 0})은 완료가 아니라 <b>정산 전(NOT_STARTED)</b>으로 구분한다. 모임 목록(6)
  * 배지가 이 {@code status}로 "정산 전 / 진행 중 / 완료"를 표시한다.
  *
+ * <p><b>{@code completionRate}는 퍼센트다</b>(0~100). 예산 사용률({@code usageRate})과 단위를
+ * 맞췄다 — 같은 서비스 안에서 어떤 비율은 0.5, 어떤 비율은 50이면 화면에서 반드시 틀린다.
+ *
  * @param total          정산 건수
  * @param completed      완료된 건수 (COMPLETED)
  * @param pending        미완료 건수
- * @param completionRate 완료율 (0.0 ~ 1.0, 정산 전은 0.0)
+ * @param completionRate 완료율 (퍼센트, 0 ~ 100. 정산 전은 0)
  * @param allCompleted   전체 완료 여부 (status == DONE)
  * @param status         진행 상태 (NOT_STARTED / IN_PROGRESS / DONE)
  */
@@ -42,7 +45,7 @@ public record SettlementSummaryResponse(
         } else {
             status = Status.IN_PROGRESS;
         }
-        double rate = (total == 0) ? 0.0 : (double) completed / total;
+        double rate = (total == 0) ? 0.0 : (double) completed * 100 / total;
         return new SettlementSummaryResponse(total, completed, pending, rate, status == Status.DONE, status);
     }
 }
