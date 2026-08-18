@@ -74,6 +74,16 @@ class BudgetForecastTest {
         em.flush();
     }
 
+    private void expenseAt(String amount, LocalDateTime spentAt) {
+        em.persist(Expense.builder()
+                .group(group).payer(payer)
+                .title("지출").amount(new BigDecimal(amount))
+                .category(ExpenseCategory.ETC)
+                .spentAt(spentAt)
+                .build());
+        em.flush();
+    }
+
     private void schedule(LocalDateTime startAt, LocalDateTime endAt) {
         em.persist(Schedule.builder()
                 .group(group).title("일정")
@@ -282,5 +292,113 @@ class BudgetForecastTest {
 
         BusinessException ex = assertThrows(BusinessException.class, this::forecast);
         assertEquals(ErrorCode.ENTITY_NOT_FOUND, ex.getErrorCode());
+    }
+
+    @Nested
+    @DisplayName("여행 전에 미리 결제한 돈은 하루 평균에 섞지 않는다")
+    class SpendingBeforePeriod {
+
+        @Test
+        @DisplayName("항공권을 미리 결제해도 예상 총액이 부풀지 않는다")
+        void prepaidCostIsNotTreatedAsDailyRate() {
+            budget("2000000");
+            // 여행 10일 전에 항공권 100만 원 결제
+            expenseAt("1000000", LocalDateTime.now().minusDays(11));
+            // 여행 중 오늘까지 식비 10만 원
+            expense("100000");
+            // 기간: 어제 ~ 3일 뒤 (전체 5일 중 2일 경과)
+            schedule(LocalDateTime.now().minusDays(1), LocalDateTime.now().plusDays(3));
+
+            BudgetForecastResponse res = forecast();
+
+            assertAll(
+                    () -> assertEquals(2L, res.elapsedDays()),
+                    () -> assertEquals(5L, res.totalDays()),
+                    () -> assertEquals(0, res.spentBeforePeriod().compareTo(new BigDecimal("1000000"))),
+                    // 하루 평균은 기간 중 지출(10만)만 본다 — 10만 ÷ 2일
+                    () -> assertEquals(0, res.dailyAverage().compareTo(new BigDecimal("50000"))),
+                    // 예상 총액 = 확정된 100만 + (10만 ÷ 2일 × 5일)
+                    () -> assertEquals(0, res.projectedTotal().compareTo(new BigDecimal("1250000"))),
+                    // 예전에는 110만을 하루 55만으로 보고 275만을 예상해 초과 경고를 냈다
+                    () -> assertFalse(res.willExceed(), "예산 200만인데 초과로 잡히면 안 된다"),
+                    () -> assertEquals(0, res.projectedOverage().compareTo(BigDecimal.ZERO)));
+        }
+
+        @Test
+        @DisplayName("여행 전 지출이 없으면 이전과 결과가 같다")
+        void unchangedWithoutPrepaidCost() {
+            budget("2000000");
+            expense("100000");
+            schedule(LocalDateTime.now().minusDays(1), LocalDateTime.now().plusDays(3));
+
+            BudgetForecastResponse res = forecast();
+
+            assertAll(
+                    () -> assertEquals(0, res.spentBeforePeriod().compareTo(BigDecimal.ZERO)),
+                    () -> assertEquals(0, res.dailyAverage().compareTo(new BigDecimal("50000"))),
+                    () -> assertEquals(0, res.projectedTotal().compareTo(new BigDecimal("250000"))));
+        }
+
+        @Test
+        @DisplayName("기간 시작 당일 지출은 기간 중으로 센다 — 경계는 시각이 아니라 날짜다")
+        void expenseOnStartDayCountsAsDuringPeriod() {
+            budget("2000000");
+            // 일정은 오늘 09시 시작인데 지출은 오늘 0시로 기록된다(지출 날짜만 받으므로).
+            // 시각으로 자르면 이 지출이 통째로 '여행 전'으로 빠진다.
+            expenseAt("100000", LocalDateTime.now().toLocalDate().atStartOfDay());
+            schedule(LocalDateTime.now().toLocalDate().atTime(9, 0),
+                    LocalDateTime.now().toLocalDate().plusDays(3).atTime(18, 0));
+
+            BudgetForecastResponse res = forecast();
+
+            assertAll(
+                    () -> assertEquals(0, res.spentBeforePeriod().compareTo(BigDecimal.ZERO),
+                            "첫날 지출이 여행 전으로 빠지면 안 된다"),
+                    () -> assertEquals(1L, res.elapsedDays()),
+                    () -> assertEquals(0, res.dailyAverage().compareTo(new BigDecimal("100000"))));
+        }
+
+        @Test
+        @DisplayName("전부 여행 전에 썼으면 하루 평균은 0이고 예상 총액은 쓴 만큼이다")
+        void allSpendingBeforePeriod() {
+            budget("2000000");
+            expenseAt("1000000", LocalDateTime.now().minusDays(11));
+            schedule(LocalDateTime.now().minusDays(1), LocalDateTime.now().plusDays(3));
+
+            BudgetForecastResponse res = forecast();
+
+            assertAll(
+                    () -> assertEquals(0, res.dailyAverage().compareTo(BigDecimal.ZERO)),
+                    () -> assertEquals(0, res.projectedTotal().compareTo(new BigDecimal("1000000"))),
+                    () -> assertFalse(res.willExceed()));
+        }
+
+        @Test
+        @DisplayName("여행 전 지출만으로 예산을 넘겼으면 초과로 잡힌다")
+        void prepaidCostAloneCanExceed() {
+            budget("500000");
+            expenseAt("800000", LocalDateTime.now().minusDays(11));
+            schedule(LocalDateTime.now().minusDays(1), LocalDateTime.now().plusDays(3));
+
+            BudgetForecastResponse res = forecast();
+
+            assertAll(
+                    () -> assertTrue(res.willExceed()),
+                    () -> assertEquals(0, res.projectedOverage().compareTo(new BigDecimal("300000"))));
+        }
+
+        @Test
+        @DisplayName("기간이 끝났으면 예상 총액은 사용액과 정확히 같다")
+        void afterPeriodProjectionEqualsSpent() {
+            budget("2000000");
+            expenseAt("1000000", LocalDateTime.now().minusDays(20));
+            expenseAt("300000", LocalDateTime.now().minusDays(9));
+            schedule(LocalDateTime.now().minusDays(10), LocalDateTime.now().minusDays(7));
+
+            BudgetForecastResponse res = forecast();
+
+            // 더 쓸 일이 없으므로 예상 총액이 사용액과 어긋나면 안 된다
+            assertEquals(0, res.projectedTotal().compareTo(res.spent()));
+        }
     }
 }

@@ -16,6 +16,11 @@ import java.time.temporal.ChronoUnit;
  * <p><b>기준 시간축.</b> {@code budgets}에는 기간 컬럼이 없다. 스키마를 바꾸지 않고 쓸 수 있는
  * 시간축은 모임 일정(첫 일정 시작 ~ 마지막 일정 종료)뿐이라 그것을 기준으로 삼는다.
  *
+ * <p><b>이미 쓴 돈과 앞으로 쓸 돈을 나눈다.</b> 여행 전에 결제한 항공권·숙소는 확정된 금액이라
+ * 반복되지 않는다. 그것까지 하루 평균에 넣으면 여행 첫날에 "하루에 항공권 값만큼 쓰는 중"으로
+ * 보고 전체 일수만큼 곱해, 예상 총액이 실제의 몇 배가 된다. 그래서 기간 전 지출은 그대로 더하고
+ * 기간 중 지출만 속도로 환산한다.
+ *
  * <p>일정이 없거나 기간이 아직 시작되지 않았으면 <b>예측하지 않는다</b>({@link Basis#NONE}).
  * 하루도 지나지 않았으면 하루 평균을 낼 수 없고, 근거 없는 숫자를 그럴듯하게 내보내는 것보다
  * 낫다. 명세는 이 경우를 정의하지 않아 예측 필드를 비우고 근거를 밝히는 쪽으로 뒀다. 화면은
@@ -23,10 +28,11 @@ import java.time.temporal.ChronoUnit;
  *
  * @param basis             예측 근거. {@code SCHEDULE}이면 아래 예측 필드가 모두 채워지고,
  *                          {@code NONE}이면 모두 {@code null}이다.
- * @param elapsedDays       기간 중 지난 일수 (1 이상)
- * @param totalDays         기간 전체 일수
- * @param dailyAverage      하루 평균 지출 {@code spent / elapsedDays}
- * @param projectedTotal    예상 총 지출 {@code dailyAverage × totalDays}
+ * @param elapsedDays        기간 중 지난 일수 (1 이상)
+ * @param totalDays          기간 전체 일수
+ * @param spentBeforePeriod  기간이 시작되기 전에 쓴 금액 (항공권·숙소 등 확정된 지출)
+ * @param dailyAverage       기간 중 하루 평균 지출 {@code (spent − spentBeforePeriod) / elapsedDays}
+ * @param projectedTotal     예상 총 지출 {@code spentBeforePeriod + dailyAverage × totalDays}
  * @param projectedOverage  예상 초과액. 넘지 않을 것으로 보이면 0이다(음수로 두지 않는다 —
  *                          "얼마 남는지"는 현황(39)의 {@code remaining}이 답한다).
  * @param willExceed        예상 총 지출이 총예산을 넘는지
@@ -40,6 +46,7 @@ public record BudgetForecastResponse(
         LocalDateTime periodEnd,
         Long elapsedDays,
         Long totalDays,
+        BigDecimal spentBeforePeriod,
         BigDecimal dailyAverage,
         BigDecimal projectedTotal,
         BigDecimal projectedOverage,
@@ -56,7 +63,7 @@ public record BudgetForecastResponse(
     /** 예측 불가. 예산·사용액만 담고 예측 필드는 비운다. */
     public static BudgetForecastResponse notForecastable(Long groupId, BigDecimal totalBudget, BigDecimal spent) {
         return new BudgetForecastResponse(groupId, totalBudget, spent, Basis.NONE,
-                null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null);
     }
 
     /**
@@ -66,18 +73,22 @@ public record BudgetForecastResponse(
      * @param totalDays   기간 전체 일수 (1 이상)
      */
     public static BudgetForecastResponse ofSchedule(Long groupId, BigDecimal totalBudget, BigDecimal spent,
+                                                    BigDecimal spentBeforePeriod,
                                                     LocalDateTime periodStart, LocalDateTime periodEnd,
                                                     long elapsedDays, long totalDays) {
-        BigDecimal dailyAverage = spent.divide(BigDecimal.valueOf(elapsedDays), 2, RoundingMode.HALF_UP);
+        // 기간 중 지출만 속도로 환산한다. 기간 전 지출은 이미 확정돼 반복되지 않으므로 그대로 더한다.
+        BigDecimal duringPeriod = spent.subtract(spentBeforePeriod);
+        BigDecimal dailyAverage = duringPeriod.divide(BigDecimal.valueOf(elapsedDays), 2, RoundingMode.HALF_UP);
         // 예상 총액은 하루 평균을 다시 곱하지 않고 한 번에 계산한다. 반올림한 평균을 곱하면
         // 오차가 남아, 기간이 끝나 더 쓸 일이 없는데도 예상 총액이 사용액과 어긋난다.
-        BigDecimal projectedTotal = spent.multiply(BigDecimal.valueOf(totalDays))
-                .divide(BigDecimal.valueOf(elapsedDays), 2, RoundingMode.HALF_UP);
+        BigDecimal projectedTotal = spentBeforePeriod.add(
+                duringPeriod.multiply(BigDecimal.valueOf(totalDays))
+                        .divide(BigDecimal.valueOf(elapsedDays), 2, RoundingMode.HALF_UP));
         BigDecimal overage = projectedTotal.subtract(totalBudget).max(BigDecimal.ZERO);
         return new BudgetForecastResponse(
                 groupId, totalBudget, spent, Basis.SCHEDULE,
                 periodStart, periodEnd,
-                elapsedDays, totalDays, dailyAverage,
+                elapsedDays, totalDays, spentBeforePeriod, dailyAverage,
                 projectedTotal, overage,
                 projectedTotal.compareTo(totalBudget) > 0);
     }
