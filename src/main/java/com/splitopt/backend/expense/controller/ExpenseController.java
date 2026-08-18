@@ -2,6 +2,7 @@ package com.splitopt.backend.expense.controller;
 
 import com.splitopt.backend.expense.dto.ExpenseCreateRequest;
 import com.splitopt.backend.expense.dto.ExpenseResponse;
+import com.splitopt.backend.expense.dto.ExpenseScheduleLinkRequest;
 import com.splitopt.backend.expense.service.ExpenseService;
 import com.splitopt.backend.global.exception.BusinessException;
 import com.splitopt.backend.global.exception.ErrorCode;
@@ -75,6 +76,25 @@ public class ExpenseController {
         Long requesterId = participantId(groupId, principal);
         return ApiResponse.success(expenseService.updateExpense(groupId, expenseId, requesterId, request),
                 "지출이 수정되었습니다.");
+    }
+
+    /**
+     * 지출에 연결된 일정만 변경/해제한다. 결제자 본인만 — 판정은 서비스가 한다.
+     *
+     * <p>일정 상세 화면에서 지출을 연결하기 위한 경로다. 수정(20)으로는 할 수 없다 —
+     * 그쪽은 제목·금액·부담 내역을 모두 요구해서, 일정만 바꾸려다 나머지를 지우게 된다.
+     */
+    @PatchMapping("/{expenseId}/schedule")
+    public ApiResponse<ExpenseResponse> linkSchedule(
+            @PathVariable Long groupId,
+            @PathVariable Long expenseId,
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody(required = false) ExpenseScheduleLinkRequest request) {
+        Long requesterId = participantId(groupId, principal);
+        Long scheduleId = request != null ? request.scheduleId() : null;
+        return ApiResponse.success(
+                expenseService.linkSchedule(groupId, expenseId, requesterId, scheduleId),
+                scheduleId != null ? "일정이 연결되었습니다." : "일정 연결이 해제되었습니다.");
     }
 
     /** 지출 삭제(21). 결제자 본인 또는 모임 개설자 — 판정은 서비스가 한다. */

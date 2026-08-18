@@ -205,6 +205,38 @@ public class ExpenseService {
         return ExpenseResponse.from(expense, shares);
     }
 
+    /**
+     * 지출에 연결된 일정만 바꾼다.
+     *
+     * <p>수정(20)과 권한 규칙이 같다 — <b>결제자 본인만</b>(3주차 회의 D조항). 연결도 그 지출을
+     * 고치는 일이라 다른 참여자가 남의 지출을 임의로 옮길 수 있으면 규칙이 반쪽이 된다.
+     *
+     * <p>부담 내역은 건드리지 않는다. 금액이 그대로라 다시 계산할 이유가 없고, 지우고 다시 넣는
+     * 과정에서 UNIQUE 제약과 부딪힐 위험만 생긴다.
+     *
+     * @param scheduleId 연결할 일정. {@code null}이면 연결 해제.
+     */
+    @Transactional
+    public ExpenseResponse linkSchedule(Long groupId, Long expenseId, Long requesterId, Long scheduleId) {
+        Expense expense = findExpenseOrThrow(groupId, expenseId);
+
+        if (!expense.isPayer(requesterId)) {
+            throw new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 수정할 수 있습니다.");
+        }
+
+        if (scheduleId != null) {
+            // 같은 모임의 일정만 연결한다. 다른 모임 일정을 붙이면 그 모임 일정 화면에 남의 모임
+            // 지출이 섞여 나온다.
+            Schedule schedule = scheduleRepository.findByIdAndGroupId(scheduleId, groupId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.ENTITY_NOT_FOUND, "일정을 찾을 수 없습니다."));
+            expense.assignSchedule(schedule);
+        } else {
+            expense.clearSchedule();
+        }
+
+        return ExpenseResponse.from(expense, expenseShareRepository.findAllByExpenseId(expenseId));
+    }
+
     /** 지출 삭제(21). 결제자 본인 또는 모임 개설자(owner)만 가능 (4주차 회의 채택). */
     @Transactional
     public void deleteExpense(Long groupId, Long expenseId, Long requesterId) {

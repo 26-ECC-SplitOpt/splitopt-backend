@@ -36,6 +36,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -222,5 +223,84 @@ class ExpenseControllerTest {
     void unauthorizedWithoutPrincipal() throws Exception {
         mockMvc.perform(get("/api/groups/2/expenses"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("일정 연결: PATCH .../schedule 에 scheduleId → 200, 응답에 일정 정보")
+    void linkSchedule() throws Exception {
+        memberOf(2L);
+        ExpenseResponse withSchedule = new ExpenseResponse(1L, "d", new BigDecimal("1000"), "SHOPPING", "d",
+                LocalDate.of(2026, 8, 15),
+                new ExpenseResponse.PayerInfo(PARTICIPANT_ID, "주영"),
+                new ExpenseResponse.ScheduleInfo(5L, "맛집 탐방"),
+                List.of(new ExpenseResponse.ShareInfo(PARTICIPANT_ID, "주영", new BigDecimal("1000"))));
+        given(expenseService.linkSchedule(2L, 1L, PARTICIPANT_ID, 5L)).willReturn(withSchedule);
+
+        mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scheduleId":5}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.schedule.scheduleId").value(5))
+                .andExpect(jsonPath("$.data.schedule.title").value("맛집 탐방"));
+    }
+
+    @Test
+    @DisplayName("일정 연결 해제: scheduleId를 null로 보내면 서비스에 null이 전달된다")
+    void unlinkScheduleWithExplicitNull() throws Exception {
+        memberOf(2L);
+        given(expenseService.linkSchedule(anyLong(), anyLong(), anyLong(), any())).willReturn(sampleExpense());
+
+        mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scheduleId":null}"""))
+                .andExpect(status().isOk());
+
+        verify(expenseService).linkSchedule(2L, 1L, PARTICIPANT_ID, null);
+    }
+
+    @Test
+    @DisplayName("일정 연결 해제: 빈 본문 {}도 해제로 본다")
+    void unlinkScheduleWithEmptyBody() throws Exception {
+        memberOf(2L);
+        given(expenseService.linkSchedule(anyLong(), anyLong(), anyLong(), any())).willReturn(sampleExpense());
+
+        mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk());
+
+        verify(expenseService).linkSchedule(2L, 1L, PARTICIPANT_ID, null);
+    }
+
+    @Test
+    @DisplayName("일정 연결: 결제자가 아니면 403")
+    void linkSchedule_nonPayerForbidden() throws Exception {
+        memberOf(2L);
+        willThrow(new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 수정할 수 있습니다."))
+                .given(expenseService).linkSchedule(anyLong(), anyLong(), anyLong(), any());
+
+        mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scheduleId":5}"""))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("일정 연결: 모임 비참여자면 403, 서비스는 호출되지 않는다")
+    void linkSchedule_nonMemberForbidden() throws Exception {
+        loginAs(USER_ID);
+        willThrow(new BusinessException(ErrorCode.ACCESS_DENIED, "이 모임의 참여자가 아닙니다."))
+                .given(groupAccessGuard).requireActiveParticipant(2L, USER_ID);
+
+        mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"scheduleId":5}"""))
+                .andExpect(status().isForbidden());
+
+        verify(expenseService, never()).linkSchedule(anyLong(), anyLong(), anyLong(), any());
     }
 }
