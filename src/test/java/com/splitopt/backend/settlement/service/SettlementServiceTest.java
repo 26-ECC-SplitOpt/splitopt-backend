@@ -244,7 +244,7 @@ class SettlementServiceTest {
         assertEquals(1, summary.completed());
         assertEquals(1, summary.pending());
         assertFalse(summary.allCompleted());
-        assertEquals(0.5, summary.completionRate(), 0.0001);
+        assertEquals(50.0, summary.completionRate(), 0.0001, "완료율은 퍼센트(0~100)다");
         assertEquals(SettlementSummaryResponse.Status.IN_PROGRESS, summary.status());
     }
 
@@ -261,7 +261,7 @@ class SettlementServiceTest {
         assertEquals(1, summary.completed());
         assertEquals(0, summary.pending());
         assertTrue(summary.allCompleted());
-        assertEquals(1.0, summary.completionRate(), 0.0001);
+        assertEquals(100.0, summary.completionRate(), 0.0001, "완료율은 퍼센트(0~100)다");
         assertEquals(SettlementSummaryResponse.Status.DONE, summary.status());
     }
 
