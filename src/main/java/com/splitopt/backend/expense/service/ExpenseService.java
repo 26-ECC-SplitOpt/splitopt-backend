@@ -206,10 +206,16 @@ public class ExpenseService {
     }
 
     /**
-     * 지출에 연결된 일정만 바꾼다.
+     * 지출에 연결된 일정만 바꾼다. <b>모임의 활성 참여자면 누구나</b> 할 수 있다.
      *
-     * <p>수정(20)과 권한 규칙이 같다 — <b>결제자 본인만</b>(3주차 회의 D조항). 연결도 그 지출을
-     * 고치는 일이라 다른 참여자가 남의 지출을 임의로 옮길 수 있으면 규칙이 반쪽이 된다.
+     * <p>수정(20)·삭제(21)와 달리 결제자로 제한하지 않는다. 3주차 회의가 결제자만으로 정한 이유는
+     * "다른 사람이 지출을 고쳐 정산이 틀어지는 것"을 막기 위해서인데, <b>일정 연결은 금액을
+     * 건드릴 수 없다</b> — 정산·통계는 일정을 참조조차 하지 않고, 예산은 일정을 기간 산정에만 쓰며
+     * 사용액은 모임 전체 지출 합계다. 잘못 연결해도 누구나 다시 옮길 수 있다.
+     *
+     * <p>제목·금액을 바꾸는 수정(20)은 그대로 결제자만 가능하다. 그쪽은 정산이 실제로 틀어진다.
+     *
+     * <p>요청자가 이 모임의 활성 참여자인지는 컨트롤러가 {@code GroupAccessGuard}로 먼저 걸러낸다.
      *
      * <p>부담 내역은 건드리지 않는다. 금액이 그대로라 다시 계산할 이유가 없고, 지우고 다시 넣는
      * 과정에서 UNIQUE 제약과 부딪힐 위험만 생긴다.
@@ -217,12 +223,8 @@ public class ExpenseService {
      * @param scheduleId 연결할 일정. {@code null}이면 연결 해제.
      */
     @Transactional
-    public ExpenseResponse linkSchedule(Long groupId, Long expenseId, Long requesterId, Long scheduleId) {
+    public ExpenseResponse linkSchedule(Long groupId, Long expenseId, Long scheduleId) {
         Expense expense = findExpenseOrThrow(groupId, expenseId);
-
-        if (!expense.isPayer(requesterId)) {
-            throw new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 수정할 수 있습니다.");
-        }
 
         if (scheduleId != null) {
             // 같은 모임의 일정만 연결한다. 다른 모임 일정을 붙이면 그 모임 일정 화면에 남의 모임

@@ -234,7 +234,7 @@ class ExpenseControllerTest {
                 new ExpenseResponse.PayerInfo(PARTICIPANT_ID, "주영"),
                 new ExpenseResponse.ScheduleInfo(5L, "맛집 탐방"),
                 List.of(new ExpenseResponse.ShareInfo(PARTICIPANT_ID, "주영", new BigDecimal("1000"))));
-        given(expenseService.linkSchedule(2L, 1L, PARTICIPANT_ID, 5L)).willReturn(withSchedule);
+        given(expenseService.linkSchedule(2L, 1L, 5L)).willReturn(withSchedule);
 
         mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -249,7 +249,7 @@ class ExpenseControllerTest {
     @DisplayName("일정 연결 해제: scheduleId를 null로 보내면 서비스에 null이 전달된다")
     void unlinkScheduleWithExplicitNull() throws Exception {
         memberOf(2L);
-        given(expenseService.linkSchedule(anyLong(), anyLong(), anyLong(), any())).willReturn(sampleExpense());
+        given(expenseService.linkSchedule(anyLong(), anyLong(), any())).willReturn(sampleExpense());
 
         mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -257,35 +257,21 @@ class ExpenseControllerTest {
                                 {"scheduleId":null}"""))
                 .andExpect(status().isOk());
 
-        verify(expenseService).linkSchedule(2L, 1L, PARTICIPANT_ID, null);
+        verify(expenseService).linkSchedule(2L, 1L, null);
     }
 
     @Test
     @DisplayName("일정 연결 해제: 빈 본문 {}도 해제로 본다")
     void unlinkScheduleWithEmptyBody() throws Exception {
         memberOf(2L);
-        given(expenseService.linkSchedule(anyLong(), anyLong(), anyLong(), any())).willReturn(sampleExpense());
+        given(expenseService.linkSchedule(anyLong(), anyLong(), any())).willReturn(sampleExpense());
 
         mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk());
 
-        verify(expenseService).linkSchedule(2L, 1L, PARTICIPANT_ID, null);
-    }
-
-    @Test
-    @DisplayName("일정 연결: 결제자가 아니면 403")
-    void linkSchedule_nonPayerForbidden() throws Exception {
-        memberOf(2L);
-        willThrow(new BusinessException(ErrorCode.ACCESS_DENIED, "결제자 본인만 수정할 수 있습니다."))
-                .given(expenseService).linkSchedule(anyLong(), anyLong(), anyLong(), any());
-
-        mockMvc.perform(patch("/api/groups/2/expenses/1/schedule")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"scheduleId":5}"""))
-                .andExpect(status().isForbidden());
+        verify(expenseService).linkSchedule(2L, 1L, null);
     }
 
     @Test
@@ -301,6 +287,6 @@ class ExpenseControllerTest {
                                 {"scheduleId":5}"""))
                 .andExpect(status().isForbidden());
 
-        verify(expenseService, never()).linkSchedule(anyLong(), anyLong(), anyLong(), any());
+        verify(expenseService, never()).linkSchedule(anyLong(), anyLong(), any());
     }
 }

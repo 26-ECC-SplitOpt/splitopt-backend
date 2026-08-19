@@ -79,10 +79,13 @@ public class ExpenseController {
     }
 
     /**
-     * 지출에 연결된 일정만 변경/해제한다. 결제자 본인만 — 판정은 서비스가 한다.
+     * 지출에 연결된 일정만 변경/해제한다. <b>모임의 활성 참여자면 누구나</b> 할 수 있다.
      *
      * <p>일정 상세 화면에서 지출을 연결하기 위한 경로다. 수정(20)으로는 할 수 없다 —
      * 그쪽은 제목·금액·부담 내역을 모두 요구해서, 일정만 바꾸려다 나머지를 지우게 된다.
+     *
+     * <p>결제자로 제한하지 않는 이유는 {@code ExpenseService#linkSchedule} 참고. 참여자 확인은
+     * 여기서 끝내므로 서비스는 요청자를 받지 않는다 — 이 호출을 지우면 인가가 통째로 사라진다.
      */
     @PatchMapping("/{expenseId}/schedule")
     public ApiResponse<ExpenseResponse> linkSchedule(
@@ -90,10 +93,10 @@ public class ExpenseController {
             @PathVariable Long expenseId,
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestBody(required = false) ExpenseScheduleLinkRequest request) {
-        Long requesterId = participantId(groupId, principal);
+        groupAccessGuard.requireActiveParticipant(groupId, userId(principal));
         Long scheduleId = request != null ? request.scheduleId() : null;
         return ApiResponse.success(
-                expenseService.linkSchedule(groupId, expenseId, requesterId, scheduleId),
+                expenseService.linkSchedule(groupId, expenseId, scheduleId),
                 scheduleId != null ? "일정이 연결되었습니다." : "일정 연결이 해제되었습니다.");
     }
 
