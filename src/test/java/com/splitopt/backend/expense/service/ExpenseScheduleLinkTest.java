@@ -97,8 +97,7 @@ class ExpenseScheduleLinkTest {
         ExpenseResponse created = anExpense();
         Schedule lunch = schedule(group, "맛집 탐방");
 
-        ExpenseResponse linked = expenseService.linkSchedule(
-                group.getId(), created.id(), payer.getId(), lunch.getId());
+        ExpenseResponse linked = expenseService.linkSchedule(group.getId(), created.id(), lunch.getId());
         em.flush();
 
         assertNotNull(linked.schedule());
@@ -111,10 +110,9 @@ class ExpenseScheduleLinkTest {
     void unlink() {
         ExpenseResponse created = anExpense();
         Schedule lunch = schedule(group, "맛집 탐방");
-        expenseService.linkSchedule(group.getId(), created.id(), payer.getId(), lunch.getId());
+        expenseService.linkSchedule(group.getId(), created.id(), lunch.getId());
 
-        ExpenseResponse cleared = expenseService.linkSchedule(
-                group.getId(), created.id(), payer.getId(), null);
+        ExpenseResponse cleared = expenseService.linkSchedule(group.getId(), created.id(), null);
         em.flush();
 
         assertNull(cleared.schedule());
@@ -126,10 +124,9 @@ class ExpenseScheduleLinkTest {
         ExpenseResponse created = anExpense();
         Schedule lunch = schedule(group, "맛집 탐방");
         Schedule cafe = schedule(group, "카페");
-        expenseService.linkSchedule(group.getId(), created.id(), payer.getId(), lunch.getId());
+        expenseService.linkSchedule(group.getId(), created.id(), lunch.getId());
 
-        ExpenseResponse moved = expenseService.linkSchedule(
-                group.getId(), created.id(), payer.getId(), cafe.getId());
+        ExpenseResponse moved = expenseService.linkSchedule(group.getId(), created.id(), cafe.getId());
         em.flush();
 
         assertEquals(cafe.getId(), moved.schedule().scheduleId());
@@ -141,8 +138,7 @@ class ExpenseScheduleLinkTest {
         ExpenseResponse created = anExpense();
         Schedule lunch = schedule(group, "맛집 탐방");
 
-        ExpenseResponse linked = expenseService.linkSchedule(
-                group.getId(), created.id(), payer.getId(), lunch.getId());
+        ExpenseResponse linked = expenseService.linkSchedule(group.getId(), created.id(), lunch.getId());
         em.flush();
 
         assertEquals(0, new BigDecimal("150000").compareTo(linked.amount()));
@@ -152,14 +148,20 @@ class ExpenseScheduleLinkTest {
     }
 
     @Test
-    @DisplayName("결제자가 아니면 연결할 수 없다 — 수정(20)과 같은 권한 규칙")
-    void onlyPayerMayLink() {
+    @DisplayName("결제자 여부를 따지지 않는다 — 연결은 금액을 건드리지 않는 작업이다")
+    void doesNotCheckPayer() {
         ExpenseResponse created = anExpense();
         Schedule lunch = schedule(group, "맛집 탐방");
 
-        BusinessException e = assertThrows(BusinessException.class, () ->
-                expenseService.linkSchedule(group.getId(), created.id(), other.getId(), lunch.getId()));
-        assertEquals(ErrorCode.ACCESS_DENIED, e.getErrorCode());
+        // 요청자를 아예 받지 않는다. 수정(20)은 결제자만 가능하지만 연결은 참여자면 누구나이며,
+        // 참여자인지는 컨트롤러가 GroupAccessGuard로 판정한다(ExpenseControllerTest).
+        ExpenseResponse linked = expenseService.linkSchedule(
+                group.getId(), created.id(), lunch.getId());
+        em.flush();
+
+        assertEquals(lunch.getId(), linked.schedule().scheduleId());
+        assertEquals(0, new BigDecimal("150000").compareTo(linked.amount()),
+                "연결만 바뀌고 금액은 그대로여야 한다");
     }
 
     @Test
@@ -172,7 +174,7 @@ class ExpenseScheduleLinkTest {
         Schedule foreign = schedule(otherGroup, "남의 일정");
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                expenseService.linkSchedule(group.getId(), created.id(), payer.getId(), foreign.getId()));
+                expenseService.linkSchedule(group.getId(), created.id(), foreign.getId()));
         assertEquals(ErrorCode.ENTITY_NOT_FOUND, e.getErrorCode());
     }
 
@@ -182,7 +184,7 @@ class ExpenseScheduleLinkTest {
         Schedule lunch = schedule(group, "맛집 탐방");
 
         BusinessException e = assertThrows(BusinessException.class, () ->
-                expenseService.linkSchedule(group.getId(), 999999L, payer.getId(), lunch.getId()));
+                expenseService.linkSchedule(group.getId(), 999999L, lunch.getId()));
         assertEquals(ErrorCode.ENTITY_NOT_FOUND, e.getErrorCode());
     }
 
@@ -191,10 +193,10 @@ class ExpenseScheduleLinkTest {
     void missingScheduleKeepsExistingLink() {
         ExpenseResponse created = anExpense();
         Schedule lunch = schedule(group, "맛집 탐방");
-        expenseService.linkSchedule(group.getId(), created.id(), payer.getId(), lunch.getId());
+        expenseService.linkSchedule(group.getId(), created.id(), lunch.getId());
 
         assertThrows(BusinessException.class, () ->
-                expenseService.linkSchedule(group.getId(), created.id(), payer.getId(), 999999L));
+                expenseService.linkSchedule(group.getId(), created.id(), 999999L));
 
         assertEquals(lunch.getId(),
                 expenseService.getExpense(group.getId(), created.id()).schedule().scheduleId(),
