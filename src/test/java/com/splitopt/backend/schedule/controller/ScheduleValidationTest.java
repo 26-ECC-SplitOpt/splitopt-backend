@@ -2,8 +2,12 @@ package com.splitopt.backend.schedule.controller;
 
 import com.splitopt.backend.global.exception.GlobalExceptionHandler;
 import com.splitopt.backend.global.security.JwtTokenProvider;
+import com.splitopt.backend.global.security.UserPrincipal;
+import com.splitopt.backend.group.service.GroupAccessGuard;
 import com.splitopt.backend.schedule.dto.ScheduleResponse;
 import com.splitopt.backend.schedule.service.ScheduleService;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,10 +15,13 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -45,7 +52,22 @@ class ScheduleValidationTest {
     private ScheduleService scheduleService;
 
     @MockitoBean
+    private GroupAccessGuard groupAccessGuard;
+
+    @MockitoBean
     private JwtTokenProvider jwtTokenProvider;
+
+    /** 기간 검증만 보는 테스트라, 인가는 통과한 상태(모임 참여자)를 기본으로 둔다. */
+    @BeforeEach
+    void loginAsMember() {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(new UserPrincipal(7L), null, List.of()));
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     private static final String REVERSED = """
             {"title":"제주도","startAt":"2026-08-23T18:00:00","endAt":"2026-08-20T09:00:00"}""";
