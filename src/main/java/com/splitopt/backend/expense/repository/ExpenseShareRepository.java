@@ -2,7 +2,10 @@ package com.splitopt.backend.expense.repository;
 
 import com.splitopt.backend.expense.domain.ExpenseShare;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface ExpenseShareRepository extends JpaRepository<ExpenseShare, Long> {
@@ -23,4 +26,13 @@ public interface ExpenseShareRepository extends JpaRepository<ExpenseShare, Long
     void deleteAllByExpenseId(Long expenseId);
 
     List<ExpenseShare> findAllByExpense_GroupId(Long groupId);
+
+    /** 목록 API(6)용 — 참여자별 부담 합계 */
+    @Query("""
+        select s.participant.id, coalesce(sum(s.shareAmount), 0)
+        from ExpenseShare s
+        where s.participant.id in :participantIds
+        group by s.participant.id
+        """)
+    List<Object[]> sumOwedByParticipantIdIn(@Param("participantIds") Collection<Long> participantIds);
 }

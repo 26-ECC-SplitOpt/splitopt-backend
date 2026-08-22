@@ -12,10 +12,9 @@ import com.splitopt.backend.group.dto.*;
 import com.splitopt.backend.group.repository.GroupParticipantRepository;
 import com.splitopt.backend.group.repository.GroupRepository;
 import com.splitopt.backend.schedule.repository.ScheduleRepository;
-import com.splitopt.backend.settlement.dto.ParticipantBalanceResponse;
+import com.splitopt.backend.settlement.domain.SettlementStatus;
+import com.splitopt.backend.settlement.dto.SettlementSummaryResponse;
 import com.splitopt.backend.settlement.repository.SettlementRepository;
-import com.splitopt.backend.settlement.service.BalanceService;
-import com.splitopt.backend.settlement.service.SettlementService;
 import com.splitopt.backend.user.domain.User;
 import com.splitopt.backend.user.dto.MessageResponse;
 import com.splitopt.backend.user.repository.UserRepository;
@@ -30,7 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -45,8 +46,6 @@ public class GroupService {
     private final GroupRepository groupRepository;
     private final GroupParticipantRepository groupParticipantRepository;
     private final UserRepository userRepository;
-    private final SettlementService settlementService;
-    private final BalanceService balanceService;
     private final ExpenseRepository expenseRepository;
     private final ExpenseShareRepository expenseShareRepository;
     private final SettlementRepository settlementRepository;
@@ -107,8 +106,50 @@ public class GroupService {
                 page, size, Sort.by(Sort.Direction.DESC, "group.createdAt"));
         Page<GroupParticipant> membershipPage =
                 groupParticipantRepository.findAllByUserIdAndIsActiveTrue(userId, pageable);
-        List<GroupListItemResponse> content = membershipPage.getContent().stream()
-                .map(m -> toListItem(m.getGroup(), userId))
+
+        List<GroupParticipant> memberships = membershipPage.getContent();
+        List<Long> groupIds = memberships.stream()
+                .map(m -> m.getGroup().getId())
+                .toList();
+        List<Long> myParticipantIds = memberships.stream()
+                .map(GroupParticipant::getId)
+                .toList();
+
+        Map<Long, Long> memberCountByGroupId = new HashMap<>();
+        Map<Long, BigDecimal> totalAmountByGroupId = new HashMap<>();
+        Map<Long, BigDecimal> paidByParticipantId = new HashMap<>();
+        Map<Long, BigDecimal> owedByParticipantId = new HashMap<>();
+        Map<Long, Long> settlementTotalByGroupId = new HashMap<>();
+        Map<Long, Long> settlementCompletedByGroupId = new HashMap<>();
+
+        if (!groupIds.isEmpty()) {
+            putLongCounts(memberCountByGroupId,
+                    groupParticipantRepository.countActiveMembersByGroupIdIn(groupIds));
+            putAmounts(totalAmountByGroupId,
+                    expenseRepository.sumAmountByGroupIdIn(groupIds));
+            putLongCounts(settlementTotalByGroupId,
+                    settlementRepository.countByGroupIdIn(groupIds));
+            putLongCounts(settlementCompletedByGroupId,
+                    settlementRepository.countByGroupIdInAndStatus(
+                            groupIds, SettlementStatus.COMPLETED));
+        }
+        if (!myParticipantIds.isEmpty()) {
+            putAmounts(paidByParticipantId,
+                    expenseRepository.sumPaidByParticipantIdIn(myParticipantIds));
+            putAmounts(owedByParticipantId,
+                    expenseShareRepository.sumOwedByParticipantIdIn(myParticipantIds));
+        }
+
+        List<GroupListItemResponse> content = memberships.stream()
+                .map(m -> toListItem(
+                        m.getGroup(),
+                        m.getId(),
+                        memberCountByGroupId,
+                        totalAmountByGroupId,
+                        paidByParticipantId,
+                        owedByParticipantId,
+                        settlementTotalByGroupId,
+                        settlementCompletedByGroupId))
                 .toList();
         return GroupListResponse.builder()
                 .groups(content)
@@ -119,27 +160,26 @@ public class GroupService {
                 .build();
     }
 
-
-    private GroupListItemResponse toListItem(Group group, Long userId) {
+    private GroupListItemResponse toListItem(
+            Group group,
+            Long myParticipantId,
+            Map<Long, Long> memberCountByGroupId,
+            Map<Long, BigDecimal> totalAmountByGroupId,
+            Map<Long, BigDecimal> paidByParticipantId,
+            Map<Long, BigDecimal> owedByParticipantId,
+            Map<Long, Long> settlementTotalByGroupId,
+            Map<Long, Long> settlementCompletedByGroupId
+    ) {
         Long groupId = group.getId();
-        int participantCount = (int) groupParticipantRepository.countByGroupIdAndIsActiveTrue(groupId);
+        int participantCount = memberCountByGroupId.getOrDefault(groupId, 0L).intValue();
+        BigDecimal totalAmount = totalAmountByGroupId.getOrDefault(groupId, BigDecimal.ZERO);
+        BigDecimal paid = paidByParticipantId.getOrDefault(myParticipantId, BigDecimal.ZERO);
+        BigDecimal owed = owedByParticipantId.getOrDefault(myParticipantId, BigDecimal.ZERO);
+        BigDecimal myBalance = paid.subtract(owed);
 
-        BigDecimal totalAmount = expenseRepository.findAllByGroupId(groupId).stream()
-                .map(e -> e.getAmount())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal myBalance = BigDecimal.ZERO;
-        var myParticipant = groupParticipantRepository.findByGroupIdAndUserId(groupId, userId);
-        if (myParticipant.isPresent()) {
-            Long participantId = myParticipant.get().getId();
-            myBalance = balanceService.getBalances(groupId).stream()
-                    .filter(b -> b.participantId().equals(participantId))
-                    .map(ParticipantBalanceResponse::balance)
-                    .findFirst()
-                    .orElse(BigDecimal.ZERO);
-        }
-
-        String settlementStatus = settlementService.getSummary(groupId).status().name();
+        long total = settlementTotalByGroupId.getOrDefault(groupId, 0L);
+        long completed = settlementCompletedByGroupId.getOrDefault(groupId, 0L);
+        String settlementStatus = SettlementSummaryResponse.of(total, completed).status().name();
 
         return GroupListItemResponse.builder()
                 .groupId(groupId)
@@ -150,6 +190,27 @@ public class GroupService {
                 .settlementStatus(settlementStatus)
                 .createdAt(group.getCreatedAt())
                 .build();
+    }
+
+    private static void putLongCounts(Map<Long, Long> target, List<Object[]> rows) {
+        for (Object[] row : rows) {
+            target.put((Long) row[0], ((Number) row[1]).longValue());        }
+    }
+
+    private static void putAmounts(Map<Long, BigDecimal> target, List<Object[]> rows) {
+        for (Object[] row : rows) {
+            target.put((Long) row[0], toBigDecimal(row[1]));
+        }
+    }
+
+    private static BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        return new BigDecimal(value.toString());
     }
 
     //모임 상세

@@ -103,4 +103,24 @@ public interface SettlementRepository extends JpaRepository<Settlement, Long> {
             order by s.amount desc, s.id asc
             """)
     List<Settlement> findMine(@Param("groupId") Long groupId, @Param("userId") Long userId);
+
+    /** 목록 API(6)용 — 그룹별 정산 건수 */
+    @Query("""
+        select s.group.id, count(s)
+        from Settlement s
+        where s.group.id in :groupIds
+        group by s.group.id
+        """)
+    List<Object[]> countByGroupIdIn(@Param("groupIds") Collection<Long> groupIds);
+
+    /** 목록 API(6)용 — 그룹별 COMPLETED 정산 건수 */
+    @Query("""
+        select s.group.id, count(s)
+        from Settlement s
+        where s.group.id in :groupIds and s.status = :status
+        group by s.group.id
+        """)
+    List<Object[]> countByGroupIdInAndStatus(
+            @Param("groupIds") Collection<Long> groupIds,
+            @Param("status") SettlementStatus status);
 }
