@@ -32,7 +32,7 @@ public interface GroupParticipantRepository extends JpaRepository<GroupParticipa
     @EntityGraph(attributePaths = "group")
     Page<GroupParticipant> findAllByUserIdAndIsActiveTrue(Long userId, Pageable pageable);
 
-    /** 목록 API(6)용 — 그룹별 활성 참여자 수 */
+    //목록 API(6)용 — 그룹별 활성 참여자 수
     @Query("""
         select p.group.id, count(p)
         from GroupParticipant p
