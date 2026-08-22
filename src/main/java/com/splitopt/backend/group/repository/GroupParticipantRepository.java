@@ -5,7 +5,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,4 +31,13 @@ public interface GroupParticipantRepository extends JpaRepository<GroupParticipa
 
     @EntityGraph(attributePaths = "group")
     Page<GroupParticipant> findAllByUserIdAndIsActiveTrue(Long userId, Pageable pageable);
+
+    //목록 API(6)용 — 그룹별 활성 참여자 수
+    @Query("""
+        select p.group.id, count(p)
+        from GroupParticipant p
+        where p.group.id in :groupIds and p.isActive = true
+        group by p.group.id
+        """)
+    List<Object[]> countActiveMembersByGroupIdIn(@Param("groupIds") Collection<Long> groupIds);
 }

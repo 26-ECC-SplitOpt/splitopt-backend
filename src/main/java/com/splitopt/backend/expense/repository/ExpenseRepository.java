@@ -3,7 +3,10 @@ package com.splitopt.backend.expense.repository;
 import com.splitopt.backend.expense.domain.Expense;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,4 +30,22 @@ public interface ExpenseRepository extends JpaRepository<Expense, Long> {
     /** 지출 1건. 상세 응답이 결제자·일정을 담으므로 함께 읽어 온다. */
     @EntityGraph(attributePaths = {"payer", "schedule"})
     Optional<Expense> findByIdAndGroupId(Long expenseId, Long groupId);
+
+    /** 목록 API(6)용 — 그룹별 지출 합계 */
+    @Query("""
+        select e.group.id, coalesce(sum(e.amount), 0)
+        from Expense e
+        where e.group.id in :groupIds
+        group by e.group.id
+        """)
+    List<Object[]> sumAmountByGroupIdIn(@Param("groupIds") Collection<Long> groupIds);
+
+    /** 목록 API(6)용 — 참여자별 결제 합계 */
+    @Query("""
+        select e.payer.id, coalesce(sum(e.amount), 0)
+        from Expense e
+        where e.payer.id in :participantIds
+        group by e.payer.id
+        """)
+    List<Object[]> sumPaidByParticipantIdIn(@Param("participantIds") Collection<Long> participantIds);
 }
